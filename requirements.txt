@@ -1,0 +1,14 @@
+requests>=2.31.0
+python-dotenv==1.0.1
+google-api-python-client==2.146.0
+google-auth==2.35.0
+google-auth-oauthlib==1.2.1
+python-docx>=1.1.0
+anthropic>=0.40.0
+pymupdf>=1.24.0
+# Relatorios internos .md -> PDF (OPERACIONAL/md_para_pdf.py). O motor de PDF e' o
+# Google Chrome headless, ja instalado no Mac do escritorio - nao precisa de LaTeX.
+markdown>=3.5
+# Calculo de prazo na skill `prescricao-intercorrente`
+# (.claude/skills/prescricao-intercorrente/scripts/calcular_prescricao.py)
+python-dateutil>=2.9.0

@@ -1,0 +1,568 @@
+{
+  "modelo": "MODELO_ALONGAMENTO_DIVIDA_RURAL.docx",
+  "gerado_por": "OPERACIONAL/gerar_modelo_alongamento.py",
+  "como_usar": [
+    "Para cada prova: localizar na pasta do cliente o arquivo do tipo_documento (anexos_inicial.classificar_arquivo).",
+    "Recortar com anexos_inicial.recortar(caminho, saida, buscar=buscar, realcar=grifar, largura_total=largura_total).",
+    "Inserir com anexos_inicial.inserir_recorte(docx, marcador_imagem, png, legenda=legenda_modelo): a imagem entra na moldura da prova, com borda fina.",
+    "Transcrever o trecho grifado no marcador_texto, lendo o documento — nunca de memória.",
+    "Documento inexistente: anexos_inicial.marcar_pendencia ou apagar o bloco e a linha do índice.",
+    "Grifo só com a legenda declarando (grifo nosso). Documento original nunca é alterado."
+  ],
+  "provas": [
+    {
+      "numero": 1,
+      "secao": "operacao",
+      "titulo": "A cédula: programa, fonte de recursos e finalidade",
+      "tipo_documento": "cedula",
+      "documento": "Cédula rural · Imagem 01, fl. [[…]]",
+      "requisito": "Enquadramento da linha · III.1-A e III.2",
+      "recortar": "faixa de largura total com os quadros de composição do crédito e de destinação (programa, fonte de recursos, finalidade, atividade)",
+      "buscar": [
+        "Programa",
+        "Fonte de Recurso",
+        "Finalidade"
+      ],
+      "grifar": [
+        "PRONAMP",
+        "PRONAF",
+        "Custeio",
+        "Investimento",
+        "OBRIGATÓRIOS"
+      ],
+      "largura_total": true,
+      "foto": false,
+      "condicional": null,
+      "marcador_imagem": "[[INSERIR PRINT 01",
+      "marcador_texto": "[[TEXTO DO PRINT 01",
+      "legenda_modelo": "Imagem 01. A cédula: programa, fonte de recursos e finalidade, fl. X (grifo nosso)",
+      "legenda_posicao": "acima da imagem"
+    },
+    {
+      "numero": 2,
+      "secao": "operacao",
+      "titulo": "O vencimento e o cronograma de reembolso",
+      "tipo_documento": "cedula",
+      "documento": "Cédula rural · Imagem 02, fl. [[…]]",
+      "requisito": "Data do vencimento · linha do tempo · III.2",
+      "recortar": "quadro do cronograma de reembolso e campo de vencimento",
+      "buscar": [
+        "CRONOGRAMA DE REEMBOLSO",
+        "VENCIMENTO"
+      ],
+      "grifar": [
+        "VENCIMENTO"
+      ],
+      "largura_total": true,
+      "foto": false,
+      "condicional": null,
+      "marcador_imagem": "[[INSERIR PRINT 02",
+      "marcador_texto": "[[TEXTO DO PRINT 02",
+      "legenda_modelo": "Imagem 02. O vencimento e o cronograma de reembolso, fl. X (grifo nosso)",
+      "legenda_posicao": "acima da imagem"
+    },
+    {
+      "numero": 3,
+      "secao": "operacao",
+      "titulo": "As garantias que continuam protegendo o banco",
+      "tipo_documento": "cedula",
+      "documento": "Cédula rural · Imagem 03, fl. [[…]]",
+      "requisito": "Reversibilidade e caução · IV",
+      "recortar": "quadro de garantias com espécie, bem e valor",
+      "buscar": [
+        "GARANTIA"
+      ],
+      "grifar": [
+        "Penhor",
+        "Hipoteca",
+        "TOTAL GARANTIDO"
+      ],
+      "largura_total": true,
+      "foto": false,
+      "condicional": null,
+      "marcador_imagem": "[[INSERIR PRINT 03",
+      "marcador_texto": "[[TEXTO DO PRINT 03",
+      "legenda_modelo": "Imagem 03. As garantias que continuam protegendo o banco, fl. X (grifo nosso)",
+      "legenda_posicao": "acima da imagem"
+    },
+    {
+      "numero": 4,
+      "secao": "operacao",
+      "titulo": "A assistência técnica pactuada",
+      "tipo_documento": "cedula",
+      "documento": "Cédula rural · Imagem 04, fl. [[…]]",
+      "requisito": "Análise técnica e exibição · III.4 e V",
+      "recortar": "campo de assistência técnica (plano simples, projeto técnico, nível de imóvel, empresa)",
+      "buscar": [
+        "ASSISTÊNCIA TÉCNICA"
+      ],
+      "grifar": [
+        "Plano Simples",
+        "Projeto Técnico",
+        "Nível de Imóvel"
+      ],
+      "largura_total": true,
+      "foto": false,
+      "condicional": null,
+      "marcador_imagem": "[[INSERIR PRINT 04",
+      "marcador_texto": "[[TEXTO DO PRINT 04",
+      "legenda_modelo": "Imagem 04. A assistência técnica pactuada, fl. X (grifo nosso)",
+      "legenda_posicao": "acima da imagem"
+    },
+    {
+      "numero": 5,
+      "secao": "operacao",
+      "titulo": "A prorrogação anterior concedida pelo próprio banco",
+      "tipo_documento": "aditivo",
+      "documento": "Aditivo / boleto de entrada · Imagem 05",
+      "requisito": "Tempestividade pelo vencimento renegociado · III.2",
+      "recortar": "campo do novo vencimento e data do pagamento ou da assinatura",
+      "buscar": [
+        "vencimento",
+        "prorroga"
+      ],
+      "grifar": [
+        "vencimento",
+        "prorrogação"
+      ],
+      "largura_total": false,
+      "foto": false,
+      "condicional": "houve prorrogação ou renegociação administrativa anterior (aditivo, boleto de entrada, novo vencimento)",
+      "marcador_imagem": "[[INSERIR PRINT 05",
+      "marcador_texto": "[[TEXTO DO PRINT 05",
+      "legenda_modelo": "Imagem 05. A prorrogação anterior concedida pelo próprio banco, fl. X (grifo nosso)",
+      "legenda_posicao": "acima da imagem"
+    },
+    {
+      "numero": 6,
+      "secao": "evento",
+      "titulo": "O decreto que reconheceu a situação de emergência",
+      "tipo_documento": "decreto-emergencia",
+      "documento": "Decreto nº [[…]] · Imagem 06",
+      "requisito": "Evento adverso oficial · MCR 2-6-4, \"b\" ou \"c\"",
+      "recortar": "ementa e artigo que declara a emergência, com data e municípios abrangidos",
+      "buscar": [
+        "situação de emergência",
+        "Art. 1"
+      ],
+      "grifar": [
+        "situação de emergência",
+        "estiagem"
+      ],
+      "largura_total": false,
+      "foto": false,
+      "condicional": null,
+      "marcador_imagem": "[[INSERIR PRINT 06",
+      "marcador_texto": "[[TEXTO DO PRINT 06",
+      "legenda_modelo": "Imagem 06. O decreto que reconheceu a situação de emergência, fl. X (grifo nosso)",
+      "legenda_posicao": "acima da imagem"
+    },
+    {
+      "numero": 7,
+      "secao": "evento",
+      "titulo": "A medição oficial do evento",
+      "tipo_documento": "clima",
+      "documento": "INMET / índice de vegetação (NDVI) · Imagem 07",
+      "requisito": "Intensidade do evento · III.3",
+      "recortar": "gráfico ou tabela da estação mais próxima (ou mapa NDVI) com o período e a média histórica",
+      "buscar": [
+        "precipitação",
+        "mm"
+      ],
+      "grifar": [
+        "precipitação",
+        "média"
+      ],
+      "largura_total": false,
+      "foto": false,
+      "condicional": null,
+      "marcador_imagem": "[[INSERIR PRINT 07",
+      "marcador_texto": "[[TEXTO DO PRINT 07",
+      "legenda_modelo": "Imagem 07. A medição oficial do evento, fl. X (grifo nosso)",
+      "legenda_posicao": "acima da imagem"
+    },
+    {
+      "numero": 8,
+      "secao": "evento",
+      "titulo": "A queda do preço do produto",
+      "tipo_documento": "cotacao",
+      "documento": "Cotação oficial (CEPEA/CONAB) · Imagem 08",
+      "requisito": "Dificuldade de comercialização · MCR 2-6-4, \"a\"",
+      "recortar": "série de preços com o valor na contratação e no período de venda",
+      "buscar": [
+        "arroba",
+        "saca"
+      ],
+      "grifar": [
+        "R$"
+      ],
+      "largura_total": false,
+      "foto": false,
+      "condicional": null,
+      "marcador_imagem": "[[INSERIR PRINT 08",
+      "marcador_texto": "[[TEXTO DO PRINT 08",
+      "legenda_modelo": "Imagem 08. A queda do preço do produto, fl. X (grifo nosso)",
+      "legenda_posicao": "acima da imagem"
+    },
+    {
+      "numero": 9,
+      "secao": "evento",
+      "titulo": "O evento na propriedade do autor",
+      "tipo_documento": null,
+      "documento": "Fotografias com data e localização · Imagem 09",
+      "requisito": "Efeito concreto do evento · III.3",
+      "recortar": "uma a três fotos com data e coordenadas visíveis (metadado ou carimbo), sem edição",
+      "buscar": [],
+      "grifar": [],
+      "largura_total": false,
+      "foto": true,
+      "condicional": null,
+      "marcador_imagem": "[[INSERIR PRINT 09",
+      "marcador_texto": "[[TEXTO DO PRINT 09",
+      "legenda_modelo": "Imagem 09. O evento na propriedade do autor, fl. X",
+      "legenda_posicao": "acima da imagem"
+    },
+    {
+      "numero": 10,
+      "secao": "laudo",
+      "titulo": "Quem assina o laudo: habilitação, ART e visita",
+      "tipo_documento": "laudo-agronomico",
+      "documento": "Laudo de perda · Imagem 10, fl. [[…]]",
+      "requisito": "Idoneidade da prova técnica · arg. 7",
+      "recortar": "identificação do responsável técnico, número de registro, ART e data da vistoria",
+      "buscar": [
+        "ART",
+        "CREA",
+        "vistoria"
+      ],
+      "grifar": [
+        "ART",
+        "CREA",
+        "vistoria"
+      ],
+      "largura_total": false,
+      "foto": false,
+      "condicional": null,
+      "marcador_imagem": "[[INSERIR PRINT 10",
+      "marcador_texto": "[[TEXTO DO PRINT 10",
+      "legenda_modelo": "Imagem 10. Quem assina o laudo: habilitação, ART e visita, fl. X (grifo nosso)",
+      "legenda_posicao": "acima da imagem"
+    },
+    {
+      "numero": 11,
+      "secao": "laudo",
+      "titulo": "Produção esperada × obtida, por safra e por operação",
+      "tipo_documento": "laudo-agronomico",
+      "documento": "Laudo de perda · Imagem 11, fl. [[…]]",
+      "requisito": "Frustração quantificada · MCR 2-6-4, \"b\"",
+      "recortar": "quadro comparativo de produção ou receita esperada e obtida",
+      "buscar": [
+        "esperada",
+        "obtida"
+      ],
+      "grifar": [
+        "esperada",
+        "obtida",
+        "perda"
+      ],
+      "largura_total": true,
+      "foto": false,
+      "condicional": null,
+      "marcador_imagem": "[[INSERIR PRINT 11",
+      "marcador_texto": "[[TEXTO DO PRINT 11",
+      "legenda_modelo": "Imagem 11. Produção esperada × obtida, por safra e por operação, fl. X (grifo nosso)",
+      "legenda_posicao": "acima da imagem"
+    },
+    {
+      "numero": 12,
+      "secao": "laudo",
+      "titulo": "Redução de renda e nexo com o evento",
+      "tipo_documento": "laudo-agronomico",
+      "documento": "Laudo de perda · Imagem 12, fl. [[…]]",
+      "requisito": "Intensidade e % de redução · MCR 2-6-12 \"d\" / 10-1-27 \"d\"",
+      "recortar": "conclusão do laudo com o percentual de redução de renda e a causa",
+      "buscar": [
+        "conclusão",
+        "redução"
+      ],
+      "grifar": [
+        "redução",
+        "renda"
+      ],
+      "largura_total": false,
+      "foto": false,
+      "condicional": null,
+      "marcador_imagem": "[[INSERIR PRINT 12",
+      "marcador_texto": "[[TEXTO DO PRINT 12",
+      "legenda_modelo": "Imagem 12. Redução de renda e nexo com o evento, fl. X (grifo nosso)",
+      "legenda_posicao": "acima da imagem"
+    },
+    {
+      "numero": 13,
+      "secao": "capacidade",
+      "titulo": "O fluxo de caixa projetado",
+      "tipo_documento": "laudo-agronomico",
+      "documento": "Laudo de capacidade de pagamento · Imagem 13, fl. [[…]]",
+      "requisito": "Dificuldade TEMPORÁRIA · MCR 2-6-4",
+      "recortar": "tabela de receitas, custos e saldo disponível por ano",
+      "buscar": [
+        "receita",
+        "custo"
+      ],
+      "grifar": [
+        "saldo",
+        "disponível"
+      ],
+      "largura_total": true,
+      "foto": false,
+      "condicional": null,
+      "marcador_imagem": "[[INSERIR PRINT 13",
+      "marcador_texto": "[[TEXTO DO PRINT 13",
+      "legenda_modelo": "Imagem 13. O fluxo de caixa projetado, fl. X (grifo nosso)",
+      "legenda_posicao": "acima da imagem"
+    },
+    {
+      "numero": 14,
+      "secao": "capacidade",
+      "titulo": "O cronograma proposto: carência e parcelas",
+      "tipo_documento": "laudo-agronomico",
+      "documento": "Laudo de capacidade de pagamento · Imagem 14, fl. [[…]]",
+      "requisito": "Pedido principal \"h\" · teto da linha",
+      "recortar": "quadro do cronograma de amortização",
+      "buscar": [
+        "carência",
+        "parcela"
+      ],
+      "grifar": [
+        "carência",
+        "parcela"
+      ],
+      "largura_total": true,
+      "foto": false,
+      "condicional": null,
+      "marcador_imagem": "[[INSERIR PRINT 14",
+      "marcador_texto": "[[TEXTO DO PRINT 14",
+      "legenda_modelo": "Imagem 14. O cronograma proposto: carência e parcelas, fl. X (grifo nosso)",
+      "legenda_posicao": "acima da imagem"
+    },
+    {
+      "numero": 15,
+      "secao": "capacidade",
+      "titulo": "O endividamento total declarado e a conclusão de viabilidade",
+      "tipo_documento": "laudo-agronomico",
+      "documento": "Laudo de capacidade de pagamento · Imagem 15, fl. [[…]]",
+      "requisito": "Transparência do passivo · III.3",
+      "recortar": "quadro do endividamento total e parágrafo de conclusão",
+      "buscar": [
+        "endividamento",
+        "conclusão"
+      ],
+      "grifar": [
+        "endividamento",
+        "capacidade de pagamento"
+      ],
+      "largura_total": false,
+      "foto": false,
+      "condicional": null,
+      "marcador_imagem": "[[INSERIR PRINT 15",
+      "marcador_texto": "[[TEXTO DO PRINT 15",
+      "legenda_modelo": "Imagem 15. O endividamento total declarado e a conclusão de viabilidade, fl. X (grifo nosso)",
+      "legenda_posicao": "acima da imagem"
+    },
+    {
+      "numero": 16,
+      "secao": "pedido",
+      "titulo": "O pedido escrito de prorrogação, com os laudos anexos",
+      "tipo_documento": "requerimento-banco",
+      "documento": "Requerimento ao banco · Imagem 16",
+      "requisito": "Solicitação do mutuário · MCR 2-6-4 · III.2",
+      "recortar": "cabeçalho com data e destinatário, o parágrafo do pedido e a lista de anexos",
+      "buscar": [
+        "prorrogação",
+        "anexo"
+      ],
+      "grifar": [
+        "prorrogação",
+        "laudo",
+        "anexo"
+      ],
+      "largura_total": false,
+      "foto": false,
+      "condicional": null,
+      "marcador_imagem": "[[INSERIR PRINT 16",
+      "marcador_texto": "[[TEXTO DO PRINT 16",
+      "legenda_modelo": "Imagem 16. O pedido escrito de prorrogação, com os laudos anexos, fl. X (grifo nosso)",
+      "legenda_posicao": "acima da imagem"
+    },
+    {
+      "numero": 17,
+      "secao": "pedido",
+      "titulo": "A prova de que o banco recebeu",
+      "tipo_documento": "requerimento-banco",
+      "documento": "AR / confirmação de leitura / protocolo · Imagem 17",
+      "requisito": "Tempestividade · linha do tempo",
+      "recortar": "data e assinatura do AR, confirmação de leitura do e-mail ou carimbo de protocolo",
+      "buscar": [
+        "recebido",
+        "protocolo"
+      ],
+      "grifar": [
+        "recebido",
+        "data"
+      ],
+      "largura_total": false,
+      "foto": false,
+      "condicional": null,
+      "marcador_imagem": "[[INSERIR PRINT 17",
+      "marcador_texto": "[[TEXTO DO PRINT 17",
+      "legenda_modelo": "Imagem 17. A prova de que o banco recebeu, fl. X (grifo nosso)",
+      "legenda_posicao": "acima da imagem"
+    },
+    {
+      "numero": 18,
+      "secao": "pedido",
+      "titulo": "A resposta do banco, ou o silêncio",
+      "tipo_documento": "negativa-banco",
+      "documento": "Resposta do banco / declaração de ausência de resposta · Imagem 18",
+      "requisito": "Negativa sem análise técnica · III.4",
+      "recortar": "a resposta inteira com data e assinante; se houve silêncio, o registro de reiteração sem resposta",
+      "buscar": [
+        "prorrogação",
+        "não"
+      ],
+      "grifar": [
+        "indeferido",
+        "entrada",
+        "política"
+      ],
+      "largura_total": false,
+      "foto": false,
+      "condicional": null,
+      "marcador_imagem": "[[INSERIR PRINT 18",
+      "marcador_texto": "[[TEXTO DO PRINT 18",
+      "legenda_modelo": "Imagem 18. A resposta do banco, ou o silêncio, fl. X (grifo nosso)",
+      "legenda_posicao": "acima da imagem"
+    },
+    {
+      "numero": 19,
+      "secao": "pedido",
+      "titulo": "A conversa com o gerente (reforço)",
+      "tipo_documento": "requerimento-banco",
+      "documento": "Mensagens / e-mail · Imagem 19",
+      "requisito": "Confissão extrajudicial · CPC 389 e 422, § 3º",
+      "recortar": "a conversa com número/identificação do gerente, datas e horas visíveis",
+      "buscar": [
+        "prorroga"
+      ],
+      "grifar": [
+        "prorrogação",
+        "sistema",
+        "não"
+      ],
+      "largura_total": false,
+      "foto": false,
+      "condicional": "houver conversa com o gerente ou assessor agro (WhatsApp, e-mail, áudio transcrito)",
+      "marcador_imagem": "[[INSERIR PRINT 19",
+      "marcador_texto": "[[TEXTO DO PRINT 19",
+      "legenda_modelo": "Imagem 19. A conversa com o gerente (reforço), fl. X (grifo nosso)",
+      "legenda_posicao": "acima da imagem"
+    },
+    {
+      "numero": 20,
+      "secao": "aplicacao",
+      "titulo": "A aplicação do crédito na atividade",
+      "tipo_documento": "producao",
+      "documento": "Notas fiscais / GTA · Imagem 20",
+      "requisito": "Destinação rural · Lei 4.829, art. 2º · III.1-A",
+      "recortar": "as notas fiscais principais, com data, emitente, produto e valor",
+      "buscar": [
+        "NOTA FISCAL"
+      ],
+      "grifar": [
+        "Valor",
+        "Descrição"
+      ],
+      "largura_total": false,
+      "foto": false,
+      "condicional": null,
+      "marcador_imagem": "[[INSERIR PRINT 20",
+      "marcador_texto": "[[TEXTO DO PRINT 20",
+      "legenda_modelo": "Imagem 20. A aplicação do crédito na atividade, fl. X (grifo nosso)",
+      "legenda_posicao": "acima da imagem"
+    },
+    {
+      "numero": 21,
+      "secao": "aplicacao",
+      "titulo": "A produção e sua evolução",
+      "tipo_documento": "producao",
+      "documento": "Ficha IDARON/ADERR / declaração de produção / DIRPF · Imagem 21",
+      "requisito": "Atividade e queda da produção · III.3",
+      "recortar": "saldo de rebanho ou produção declarada em dois períodos",
+      "buscar": [
+        "saldo",
+        "rebanho"
+      ],
+      "grifar": [
+        "saldo",
+        "total"
+      ],
+      "largura_total": false,
+      "foto": false,
+      "condicional": null,
+      "marcador_imagem": "[[INSERIR PRINT 21",
+      "marcador_texto": "[[TEXTO DO PRINT 21",
+      "legenda_modelo": "Imagem 21. A produção e sua evolução, fl. X (grifo nosso)",
+      "legenda_posicao": "acima da imagem"
+    },
+    {
+      "numero": 22,
+      "secao": "ameaca",
+      "titulo": "A restrição cadastral já lançada ou anunciada",
+      "tipo_documento": "negativacao",
+      "documento": "SERASA / SPC / SCR (Registrato) · Imagem 22",
+      "requisito": "Perigo de dano concreto · IV",
+      "recortar": "a anotação com credor, valor e data",
+      "buscar": [
+        "inclusão",
+        "pendência"
+      ],
+      "grifar": [
+        "data",
+        "valor"
+      ],
+      "largura_total": false,
+      "foto": false,
+      "condicional": null,
+      "marcador_imagem": "[[INSERIR PRINT 22",
+      "marcador_texto": "[[TEXTO DO PRINT 22",
+      "legenda_modelo": "Imagem 22. A restrição cadastral já lançada ou anunciada, fl. X (grifo nosso)",
+      "legenda_posicao": "acima da imagem"
+    },
+    {
+      "numero": 23,
+      "secao": "ameaca",
+      "titulo": "A cobrança, a execução ou o leilão",
+      "tipo_documento": "processo",
+      "documento": "Notificação de vencimento antecipado / execução / edital · Imagem 23",
+      "requisito": "Perigo datado sobre o patrimônio produtivo · IV",
+      "recortar": "o ato com número, data e bens atingidos",
+      "buscar": [
+        "execução",
+        "leilão",
+        "vencimento antecipado"
+      ],
+      "grifar": [
+        "data",
+        "penhora",
+        "leilão"
+      ],
+      "largura_total": false,
+      "foto": false,
+      "condicional": null,
+      "marcador_imagem": "[[INSERIR PRINT 23",
+      "marcador_texto": "[[TEXTO DO PRINT 23",
+      "legenda_modelo": "Imagem 23. A cobrança, a execução ou o leilão, fl. X (grifo nosso)",
+      "legenda_posicao": "acima da imagem"
+    }
+  ]
+}

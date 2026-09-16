@@ -1,0 +1,17 @@
+# 08:00, de segunda a sexta, no fuso de Porto Velho (UTC-4).
+# O horario e' o mesmo do POP-CJ-003: as 08:00 a rodada reflete ate as
+# publicacoes do dia anterior.
+[Unit]
+Description=Maldonado - dispara a rotina de intimacoes as 08:00 (seg-sex)
+
+[Timer]
+OnCalendar=Mon..Fri 08:00
+# Repoe a rodada perdida: se a VPS estiver desligada/reiniciando as 08:00, o
+# systemd roda assim que voltar. E' o que o launchd do Mac NAO fazia.
+Persistent=true
+# Espalha o disparo em ate 5 min para nao bater no DJEN no segundo exato.
+RandomizedDelaySec=300
+Unit=maldonado-intimacoes.service
+
+[Install]
+WantedBy=timers.target

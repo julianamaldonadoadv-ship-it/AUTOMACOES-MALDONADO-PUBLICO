@@ -1,0 +1,28 @@
+# Apuracao diaria do KPI de exito - Maldonado Advogados
+# Somente leitura: nao grava no ADVBOX nem no Drive.
+[Unit]
+Description=Maldonado - apuracao diaria do KPI de exito
+Documentation=file:/opt/maldonado/automacoes/deploy/vps/README.md
+After=network-online.target maldonado-intimacoes.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=maldonado
+Group=maldonado
+WorkingDirectory=/opt/maldonado/automacoes
+ExecStart=/bin/bash /opt/maldonado/automacoes/deploy/kpi_diario.sh
+Restart=on-failure
+RestartSec=600
+StartLimitBurst=3
+TimeoutStartSec=1800
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+# docs/kpi_exito e' onde saem os relatorios da competencia.
+ReadWritePaths=/opt/maldonado/automacoes/_trabalho /opt/maldonado/automacoes/docs
+
+[Install]
+WantedBy=multi-user.target

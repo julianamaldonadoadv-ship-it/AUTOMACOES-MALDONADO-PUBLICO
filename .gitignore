@@ -1,0 +1,40 @@
+# Segredos / credenciais - NUNCA versionar
+config/.env
+config/credentials.json
+config/oauth_credentials.json
+config/token.json
+config/token*.json
+config/*.bak
+DOCS_MODELOS/timbrado_modelo.docx
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+env/
+
+# Banco de teses (vault Obsidian) - NAO versionado por padrao.
+# Contem nome de cliente e numero de processo reais; o repositorio tem remote no GitHub.
+# So versionar apos decisao explicita do escritorio sobre expor esses dados.
+BASE_CONHECIMENTO/
+
+# Relatorios / saidas geradas
+*.tmp
+tmp/
+
+# Documentos baixados da pasta do cliente para montar a inicial (`anexos baixar`)
+# e recortes gerados a partir deles. Sao documentos reais de cliente - nao versionar.
+_trabalho/
+
+# Arquivos pessoais do SO
+Thumbs.db
+.DS_Store
+
+# Base de apontamentos da Gerencia Juridica: as planilhas trazem nome de cliente
+# e numero de processo reais. Os relatorios (.md) ficam versionados; os .csv nao.
+docs/base_apontamentos_gj/*.csv
+# Os PDFs de docs/ NAO sao ignorados de proposito: sao o material que circula no
+# escritorio (manual e checklist para os advogados). Ignora-los sumia com eles do
+# explorador do VS Code, que e' onde a Dra. Juliana procura o arquivo.

@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Agendamento da verificacao diaria do KPI de exito - Maldonado Advogados.
+
+  Roda de segunda a sexta as 08:00, junto com a rotina de intimacoes da
+  Controladoria (POP-CJ-003) - escolha da Dra. Juliana em 10/09/2026.
+
+  Consequencia a ter em mente: as 08:00 os relatorios refletem ate as
+  publicacoes do dia ANTERIOR. As de hoje entram na rodada de amanha.
+
+  ATENCAO ao caminho: o ProgramArguments abaixo aponta para a pasta do projeto
+  no Mac da Dra. Juliana. Em outra maquina, ajustar os dois caminhos antes de
+  carregar (o do script e o WorkingDirectory).
+
+  Instalar:
+      cp deploy/com.maldonado.kpi.plist ~/Library/LaunchAgents/
+      launchctl load ~/Library/LaunchAgents/com.maldonado.kpi.plist
+  Conferir se esta carregado:
+      launchctl list | grep maldonado
+  Desinstalar:
+      launchctl unload ~/Library/LaunchAgents/com.maldonado.kpi.plist
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.maldonado.kpi</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>/Users/SEU_USUARIO/caminho/para/AUTOMACOES-MALDONADO/deploy/kpi_diario.sh</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>/Users/SEU_USUARIO/caminho/para/AUTOMACOES-MALDONADO</string>
+
+    <!-- Segunda a sexta, 08:00. Weekday 1=segunda ... 5=sexta. -->
+    <key>StartCalendarInterval</key>
+    <array>
+        <dict><key>Weekday</key><integer>1</integer><key>Hour</key><integer>8</integer><key>Minute</key><integer>0</integer></dict>
+        <dict><key>Weekday</key><integer>2</integer><key>Hour</key><integer>8</integer><key>Minute</key><integer>0</integer></dict>
+        <dict><key>Weekday</key><integer>3</integer><key>Hour</key><integer>8</integer><key>Minute</key><integer>0</integer></dict>
+        <dict><key>Weekday</key><integer>4</integer><key>Hour</key><integer>8</integer><key>Minute</key><integer>0</integer></dict>
+        <dict><key>Weekday</key><integer>5</integer><key>Hour</key><integer>8</integer><key>Minute</key><integer>0</integer></dict>
+    </array>
+
+    <!-- ATENCAO: com StartCalendarInterval o launchd NAO repoe rodada perdida.
+         Se o Mac estiver desligado ou dormindo as 08:00, aquele dia nao roda -
+         e' so rodar `bash deploy/kpi_diario.sh` na mao, que a apuracao e' da
+         competencia inteira e se recompoe sozinha.
+         RunAtLoad fica FALSE para instalar o agendamento sem disparar uma
+         rodada de 5 minutos no ato. -->
+    <key>RunAtLoad</key>
+    <false/>
+
+    <key>StandardOutPath</key>
+    <string>/Users/SEU_USUARIO/caminho/para/AUTOMACOES-MALDONADO/_trabalho/logs/kpi_launchd.out</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/SEU_USUARIO/caminho/para/AUTOMACOES-MALDONADO/_trabalho/logs/kpi_launchd.err</string>
+</dict>
+</plist>

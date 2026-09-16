@@ -1,0 +1,29 @@
+# Rotina diaria de intimacoes da Controladoria (POP-CJ-003) - Maldonado Advogados
+# Instalar em /etc/systemd/system/ (o deploy/vps/enviar.sh faz isso).
+[Unit]
+Description=Maldonado - rotina diaria de intimacoes (POP-CJ-003)
+Documentation=file:/opt/maldonado/automacoes/deploy/vps/README.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=maldonado
+Group=maldonado
+WorkingDirectory=/opt/maldonado/automacoes
+ExecStart=/bin/bash /opt/maldonado/automacoes/deploy/vps/rotina_intimacoes.sh
+# O DJEN cai e volta: se a rodada falhar, tenta de novo em 10 min, ate 3 vezes.
+Restart=on-failure
+RestartSec=600
+StartLimitBurst=3
+TimeoutStartSec=1800
+
+# Servico que le processo de cliente: sem privilegio nenhum alem do necessario.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/maldonado/automacoes/_trabalho /opt/maldonado/automacoes/docs
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,13 @@
+# 08:20, de segunda a sexta - 20 min depois da rotina de intimacoes, para as
+# duas nao disputarem o DJEN na mesma janela.
+[Unit]
+Description=Maldonado - dispara a apuracao do KPI as 08:20 (seg-sex)
+
+[Timer]
+OnCalendar=Mon..Fri 08:20
+Persistent=true
+RandomizedDelaySec=300
+Unit=maldonado-kpi.service
+
+[Install]
+WantedBy=timers.target

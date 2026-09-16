@@ -1,0 +1,44 @@
+# =============================================================================
+#  Fim de linha - Maldonado Advogados
+#
+#  ATENCAO A ORDEM: no .gitattributes, a ULTIMA regra que casa com o arquivo e'
+#  a que vale. Por isso a regra geral vem PRIMEIRO e as especificas depois -
+#  invertido, o `* text=auto eol=lf` anula o `*.bat ... eol=crlf` e o instalador
+#  do Windows passa a ser gravado com LF (quebra ao rodar no cmd.exe).
+#
+#  Ampliado em 11/09/2026 com base em pabadvogados-hub/alves-carneiro-advogados
+#  (mesmo produto white-label, outro escritorio), adaptado aos tipos daqui. As
+#  duas regras originais do escritorio (*.sh e *.bat) seguem abaixo, intactas.
+# =============================================================================
+
+# --- regra geral: texto em LF no repositorio e na VPS Linux -------------------
+* text=auto eol=lf
+
+# --- especificas (vencem a regra geral) --------------------------------------
+
+# Forcar LF em scripts shell, mesmo clonando/commitando de Windows
+*.sh text eol=lf
+*.bat text eol=crlf
+
+# Outros scripts do Windows tambem precisam de CRLF para rodar no cmd.exe.
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
+
+# CSV fica com CRLF: o modulo `csv` do Python grava \r\n por padrao e quem abre
+# esses arquivos e' o Excel da equipe. Normalizar para LF mudaria o que o codigo
+# ja produz (docs/kpi_exito/*.csv sao CRLF hoje).
+*.csv text eol=crlf
+
+# Binarios - nunca normalizar (corromperia o arquivo).
+*.docx binary
+*.xlsx binary
+*.pdf  binary
+*.png  binary
+*.jpg  binary
+*.jpeg binary
+*.ico  binary
+*.zip  binary
+
+# O timbrado e as pecas-modelo sao .docx: ja cobertos acima, mas explicitos
+# porque um timbrado corrompido so aparece na hora de protocolar.
+DOCS_MODELOS/*.docx binary
