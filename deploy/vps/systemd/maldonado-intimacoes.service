@@ -1,7 +1,20 @@
-# Rotina diaria de intimacoes da Controladoria (POP-CJ-003) - Maldonado Advogados
+# Rodada diaria da Controladoria - Maldonado Advogados
 # Instalar em /etc/systemd/system/ (o deploy/vps/enviar.sh faz isso).
+#
+# ATUALIZADO EM 30/09/2026. O unit chamava `deploy/vps/rotina_intimacoes.sh`,
+# que so faz intimacoes. Desde 21/09/2026 a rodada das 08:00 do escritorio e'
+# `deploy/controladoria_diaria.sh`, que faz TRES coisas:
+#   1. intimacoes (POP-CJ-003) em simulacao, via rotina_recuperar.py, que
+#      ainda repoe cada dia util perdido, um por vez
+#   2. despachos (POP-CJ-DESP-001) - grava a planilha de controle
+#   3. custas (POP-CJ-006) - fila antes do protocolo + auditoria de 7 dias
+# Subir apontando para o script antigo faria a VPS rodar versao atrasada e
+# deixar despachos e custas de fora.
+#
+# `deploy/vps/rotina_intimacoes.sh` NAO foi apagado: fica como caminho de
+# emergencia para rodar so as intimacoes, sem planilha nem custas.
 [Unit]
-Description=Maldonado - rotina diaria de intimacoes (POP-CJ-003)
+Description=Maldonado - rodada diaria da Controladoria (intimacoes + despachos + custas)
 Documentation=file:/opt/maldonado/automacoes/deploy/vps/README.md
 After=network-online.target
 Wants=network-online.target
@@ -11,7 +24,7 @@ Type=oneshot
 User=maldonado
 Group=maldonado
 WorkingDirectory=/opt/maldonado/automacoes
-ExecStart=/bin/bash /opt/maldonado/automacoes/deploy/vps/rotina_intimacoes.sh
+ExecStart=/bin/bash /opt/maldonado/automacoes/deploy/controladoria_diaria.sh
 # O DJEN cai e volta: se a rodada falhar, tenta de novo em 10 min, ate 3 vezes.
 Restart=on-failure
 RestartSec=600

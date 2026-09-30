@@ -770,7 +770,6 @@ def construir():
         ("V", "Da distribuição do ônus da prova e da exibição de documentos"),
         ("VI", "Da gratuidade da justiça"),
         ("VII", "Dos pedidos"),
-        ("VIII", "Do valor da causa"),
     ])
 
     # ------------------------------------------------------------------
@@ -1484,21 +1483,14 @@ def construir():
         ("n", "a condenação do réu nas custas e nos honorários advocatícios."),
     ])
 
-    # ------------------------------------------------------------------
-    # VIII — Valor da causa
-    # ------------------------------------------------------------------
-    vl.titulo_secao(doc, "VIII", "Do valor da causa")
-
-    vl.paragrafo(
-        doc,
-        "Dá-se à causa o valor de R$ [[valor]] ([[por extenso]]), correspondente [[ao saldo das operações "
-        "cuja prorrogação se pede]], por ser a ação relativa ao cumprimento e à modificação do ato "
-        "jurídico (art. 292, II, do CPC).")
+    # Valor da causa: uma linha antes do fecho, sem tópico próprio (Dra. Juliana, 16/09/2026:
+    # tópico específico chama atenção para o valor).
+    vl.paragrafo(doc, "Dá-se à causa o valor de R$ [[valor]] ([[por extenso]]).")
 
     vl.pendencia(
         doc,
-        "Não usar valor simbólico: o juiz corrige de ofício quando o valor não corresponde ao conteúdo "
-        "patrimonial em discussão (art. 292, § 3º, do CPC).")
+        "Valor: [[saldo das operações cuja prorrogação se pede]] (art. 292, II, do CPC). Não usar valor "
+        "simbólico: o juiz corrige de ofício (art. 292, § 3º). Manter em uma linha, sem tópico nem justificativa.")
 
     # ------------------------------------------------------------------
     # Fecho

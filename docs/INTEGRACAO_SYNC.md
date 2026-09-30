@@ -2,12 +2,11 @@
 
 > Levantado em 11/09/2026 contra o Swagger público da API.
 >
-> **Status: o Sync NÃO foi contratado pelo escritório.** Esta integração está escrita, testada
-> e **inerte** — não há conta, não há chave, nenhuma chamada sai. Foi deixada pronta de
-> propósito: se a direção decidir contratar, a ativação é colar uma chave no `.env`, não
-> esperar desenvolvimento. Enquanto `SYNC_API_TOKEN` estiver vazio, o sistema se comporta
-> exatamente como antes — a triagem captura pelo DJEN e a rodada das 08:00 nem passa por
-> este código.
+> **Status (21/09/2026): o Sync foi contratado e a integração está ATIVA, somente leitura.**
+> Chave em `config/.env`, conta "Renan Maldonado", 1 monitor (OAB RO5769), 55 processos
+> acompanhados e 2.688 descobertos e não ativados. A triagem continua no DJEN por padrão
+> (`--fonte sync` / `--fonte ambas` para usar o Sync). Retrato completo e calibragem contra o
+> payload real: seção "SYNC API" do `CLAUDE.md`.
 >
 > Nenhuma dependência nova foi adicionada (`requests` e `python-dotenv` já estavam no
 > `requirements.txt`).
@@ -133,7 +132,7 @@ trocar de fonte.
 
 Agrupa por (processo, dia) e só funde quando **a abertura do texto coincide** (60 primeiros
 caracteres, ignorando espaço). É conservador de propósito, porque o mesmo processo pode ter
-dois atos diferentes no mesmo dia — foi o caso de uma cliente, com *"defiro o pedido formulado
+dois atos diferentes no mesmo dia — foi o caso da Sra. Cliente H, com *"defiro o pedido formulado
 pela parte autora"* e *"defiro a dilação de prazo"*. Na dúvida **mantém os dois** e avisa:
 duplicata repetida é incômodo visível; intimação fundida por engano é prazo perdido em
 silêncio.
@@ -206,10 +205,25 @@ retry cego.
 | `GET /v1/processos/{n}/autos` | `autos()` | linha do tempo unificada |
 | `GET /v1/processos/{n}/autos.md` | `autos_markdown()` | leitura de decisão, Squad Jurimetria |
 | `GET /v1/documentos/{id}/markdown` | `documento_markdown()` | teor OCR de um documento |
+| `GET /v1/documentos/{id}/arquivo` | `documento_arquivo()` | **arquivo ORIGINAL** (PDF dos autos), URL assinada de 1 hora |
 | `POST /v1/busca` | `buscar()` | busca em tempo real, não persiste |
 | `GET /v1/jurimetria` | `jurimetria()` | Squad Jurimetria |
 | `GET /v1/monitores` | `listar_monitores()` | conferir cobertura x `OABS_MONITORADAS` |
 | `GET /v1/webhooks` | `listar_webhooks()` | `sync webhooks` |
+
+**O original vale mais que o OCR quando o destinatário é o perito.** `documento_markdown()` serve
+para localizar a passagem; o laudo e o demonstrativo têm de ser lidos no PDF como o banco os juntou.
+`documento_arquivo()` devolve URL assinada válida por **1 hora**, então o arquivo é baixado na hora e
+guardado no Drive, onde o link é permanente (foi assim que saiu a pasta de operações da lista da
+garantia do juízo, 24/09/2026: 38 embargos, 79 arquivos).
+
+Três armadilhas conferidas nessa carga, todas com o mesmo remédio (o documento vem do PJe, à mão):
+- **404 em `/arquivo` não é documento inexistente**, é documento sem binário guardado — TRF5
+  (0000073-29.2026.4.05.8101) e TJSC devolveram 404 no original tendo o texto.
+- **No Projudi (TJPR) todo documento se chama `online.pdf`**: filtro por nome não serve, e nem o
+  filtro por conteúdo achou cédula nos três processos da Sra. Cliente T.
+- **Nome de documento repetido dentro do mesmo processo** (`id_externo_`, `extrato_jociane`) grava no
+  mesmo arquivo e o segundo apaga o primeiro. O nome local tem de levar o **id do documento**.
 
 Escritas implementadas mas **travadas**: `POST /v1/intimacoes/{id}/tratar`,
 `POST /v1/prazos/ciencia`, `POST /v1/monitores`, `POST /v1/webhooks`.

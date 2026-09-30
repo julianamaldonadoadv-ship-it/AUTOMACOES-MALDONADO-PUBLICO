@@ -316,7 +316,7 @@ def quadro_identificacao(doc, linhas, titulo="IDENTIFICAÇÃO DA DEMANDA"):
     Não é enfeite: é onde a linha "Execução conexa" obriga o redator a declarar
     se já existe execução sobre o mesmo título — a verificação que a Restrição
     Absoluta nº 20 exige e cuja omissão custou a reconversão da declaratória em
-    embargos nos autos 0000000-00.0000.0.00.0000.
+    embargos nos autos 0000071-05.2026.8.22.0001.
     """
     t = _tabela(doc, len(linhas) + 1, 2, larguras=[0.30, 0.70])
     c = t.cell(0, 0).merge(t.cell(0, 1))
@@ -833,7 +833,7 @@ def varrer_lexico_embargos(doc):
     Restrição Absoluta nº 19. Um único pedido residual de "efeito suspensivo aos
     presentes embargos à execução", remanescente de modelo reaproveitado, foi o
     trecho que o juízo transcreveu para converter de ofício a ação declaratória
-    em embargos nos autos 0000000-00.0000.0.00.0000. Rodar sempre antes de
+    em embargos nos autos 0000071-05.2026.8.22.0001. Rodar sempre antes de
     entregar a minuta para revisão.
 
     O quadro de instruções do modelo (aquele que começa com "MODELO — APAGUE
@@ -858,3 +858,101 @@ def varrer_lexico_embargos(doc):
                 pos = baixo.index(termo)
                 achados.append((i, termo, texto[max(0, pos - 60):pos + 80].strip()))
     return achados
+
+
+# --------------------------------------------------------------------------
+# 11. Padrão do escritório: paleta do timbre, moldura célula a célula, irregularidade
+# --------------------------------------------------------------------------
+# Regra da Dra. Juliana (15/09 e 22/09/2026, cobrada de novo em 29/09/2026): títulos,
+# subtítulos, quadros e tabelas na cor do timbre; nada de laranja, azul e verde misturados.
+# O vermelho só na caixa de IRREGULARIDADE e no quadro de conferências. Toda peça passa por
+# `aplicar_padrao_escritorio(doc)` antes de salvar (depois de inserir os recortes).
+OURO = "D4B57F"          # faixas de cabeçalho e bordas, cor do timbre
+OURO_TEXTO = "B8955A"    # o mesmo dourado um tom abaixo, legível no PJe
+OURO_CLARO = "F6EFE2"    # rótulos, subcabeçalhos e fundos de caixa
+VERMELHO_BORDA = "C00000"
+_FUNDO_FORTE = {LARANJA.upper(), AZUL.upper(), LARANJA_ESCURO.upper()}
+_PRESERVAR_FUNDO = {VERMELHO.upper()}
+_LADOS = ("top", "left", "bottom", "right")
+
+
+def moldura(tabela, cor, tamanho=12):
+    """Borda em CADA célula. O Pages e a exportação para PDF ignoram a borda definida só na
+    tabela (tblBorders): sem isto o quadro sai sem moldura no PDF que o juiz lê."""
+    for linha in tabela.rows:
+        for cel in linha.cells:
+            tcPr = cel._element.get_or_add_tcPr()
+            for antigo in tcPr.findall(qn("w:tcBorders")):
+                tcPr.remove(antigo)
+            b = OxmlElement("w:tcBorders")
+            for lado in _LADOS:
+                e = OxmlElement("w:" + lado)
+                e.set(qn("w:val"), "single")
+                e.set(qn("w:sz"), str(tamanho))
+                e.set(qn("w:space"), "0")
+                e.set(qn("w:color"), cor)
+                b.append(e)
+            tcPr.append(b)
+    return tabela
+
+
+def irregularidade(doc, numero, texto, rotulo=None):
+    """Caixa vermelha que marca, no corpo da peça, cada irregularidade provada.
+
+    Pedido da Dra. Juliana (18/09/2026): "marcadores nas partes para chamar atenção do leitor em
+    relação às irregularidades". É o único vermelho da peça além do quadro de conferências.
+    """
+    rot = rotulo or "IRREGULARIDADE %s" % (("%02d" % numero) if isinstance(numero, int) else numero)
+    t = caixa(doc, rot, texto, VERMELHO)
+    moldura(t, VERMELHO_BORDA, 12)
+    return t
+
+
+def aplicar_padrao_escritorio(doc):
+    """Acabamento obrigatório de toda peça: moldura célula a célula + paleta do timbre.
+
+    1. Toda tabela do corpo com borda recebe a borda também em cada célula, na espessura que já
+       tinha (mínimo 8), para a moldura sobreviver ao PDF.
+    2. Fundos fortes (faixa de título, selo de tribunal) viram dourado; os demais, dourado claro;
+       bordas viram douradas; texto colorido vira preto. Preserva o vermelho das caixas de
+       IRREGULARIDADE e do quadro de conferências, e o realce amarelo (grifo).
+    """
+    for t in doc.tables:
+        tblPr = t._tbl.tblPr
+        brd = tblPr.find(qn("w:tblBorders")) if tblPr is not None else None
+        ja_tem = any(c._element.tcPr is not None and c._element.tcPr.find(qn("w:tcBorders")) is not None
+                     for r in t.rows for c in r.cells)
+        if brd is None or ja_tem:
+            continue
+        top = brd.find(qn("w:top"))
+        if top is None or top.get(qn("w:val")) in (None, "nil", "none"):
+            continue
+        moldura(t, top.get(qn("w:color")) or BORDA, max(8, int(top.get(qn("w:sz")) or 4)))
+
+    # Vermelho só sobrevive onde há moldura vermelha (irregularidade, conferências); na linha do
+    # tempo e na síntese o fundo de alerta vira dourado claro, porque ali o rótulo já diz a fase.
+    for t in doc.tables:
+        xml = t._tbl.xml.upper()
+        if VERMELHO_BORDA in xml:
+            continue
+        for shd in t._tbl.iter(qn("w:shd")):
+            if (shd.get(qn("w:fill")) or "").upper() == VERMELHO.upper():
+                shd.set(qn("w:fill"), OURO_CLARO)
+
+    for el in doc.element.body.iter():
+        if el.tag == qn("w:shd"):
+            fill = (el.get(qn("w:fill")) or "").upper()
+            if not fill or fill in ("AUTO", "FFFFFF") or fill in _PRESERVAR_FUNDO:
+                continue
+            el.set(qn("w:fill"), OURO if fill in _FUNDO_FORTE else OURO_CLARO)
+        elif el.tag == qn("w:color") and el.getparent().tag == qn("w:rPr"):
+            if (el.get(qn("w:val")) or "").upper() != OURO_TEXTO:
+                el.set(qn("w:val"), "000000")
+        elif el.tag in tuple(qn("w:" + b) for b in _LADOS + ("insideH", "insideV")) and \
+                el.getparent().tag in (qn("w:tblBorders"), qn("w:tcBorders")):
+            if el.get(qn("w:val")) in (None, "nil", "none"):
+                continue
+            if (el.get(qn("w:color")) or "").upper() == VERMELHO_BORDA:
+                continue
+            el.set(qn("w:color"), OURO)
+    return doc

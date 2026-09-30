@@ -636,10 +636,50 @@ def pasta_da_peca(drive_service, nome_cliente: str, numero_processo: str = None,
     return criar_pasta(drive_service, nome, raiz)
 
 
+def liberar_edicao(drive_service, file_id: str, emails, notificar: bool = False):
+    """Da permissao de EDICAO (writer) no arquivo a cada e-mail. Idempotente.
+
+    Regra da Dra. Juliana (18/09/2026): peca que a automacao devolve ao advogado
+    ja sai com edicao liberada para o advogado responsavel. Sem isso, cada
+    devolutiva gerava um pedido de acesso e a peca parava ate a GJ aprovar.
+    Quem ja tem acesso de edicao (ou e' dono) e' pulado; quem tem so leitura sobe
+    para edicao. notificar=False porque o link vai no AGENDAMENTO do ADVBOX.
+    Retorna a lista de e-mails efetivamente liberados.
+    """
+    alvos = [e.strip().lower() for e in ([emails] if isinstance(emails, str) else emails or [])
+             if e and e.strip()]
+    if not alvos:
+        return []
+    atuais = drive_service.permissions().list(
+        fileId=file_id, fields='permissions(id,emailAddress,role)',
+        supportsAllDrives=True).execute().get('permissions', [])
+    por_email = {(p.get('emailAddress') or '').lower(): p for p in atuais}
+
+    liberados = []
+    for email in dict.fromkeys(alvos):
+        atual = por_email.get(email)
+        if atual and atual.get('role') in ('owner', 'organizer', 'fileOrganizer', 'writer'):
+            continue
+        if atual:
+            drive_service.permissions().update(
+                fileId=file_id, permissionId=atual['id'], body={'role': 'writer'},
+                supportsAllDrives=True).execute()
+        else:
+            drive_service.permissions().create(
+                fileId=file_id, body={'type': 'user', 'role': 'writer', 'emailAddress': email},
+                sendNotificationEmail=notificar, supportsAllDrives=True).execute()
+        liberados.append(email)
+    return liberados
+
+
 def arquivar_peca(drive_service, caminho_local: str, nome_cliente: str,
                   numero_processo: str = None, nome_arquivo: str = None,
-                  converter_google_docs: bool = False):
+                  converter_google_docs: bool = False, editores=None):
     """Guarda a peca produzida em ZEUS > PEÇAS AUTOMAÇÃO > [CLIENTE] - [PROCESSO].
+
+    editores: e-mail(s) que recebem edicao no arquivo (o advogado responsavel —
+    ver advbox_integration.email_usuario()). Regra da GJ: peca devolvida ao
+    advogado sai com edicao liberada.
 
     NUNCA chamar sem confirmacao explicita (regra de ouro do projeto) — o CLI pergunta antes.
     Retorna (arquivo, pasta_id).
@@ -647,6 +687,8 @@ def arquivar_peca(drive_service, caminho_local: str, nome_cliente: str,
     pasta_id = pasta_da_peca(drive_service, nome_cliente, numero_processo, criar=True)
     arquivo = enviar_arquivo(drive_service, caminho_local, pasta_id, nome=nome_arquivo,
                              converter_google_docs=converter_google_docs)
+    if editores:
+        liberar_edicao(drive_service, arquivo['id'], editores)
     return arquivo, pasta_id
 
 
@@ -666,7 +708,7 @@ def enviar_arquivo(drive_service, caminho_local: str, pasta_id: str, nome: str =
     # Peca revisada SUBSTITUI a anterior no MESMO fileId (POP-CJ-003-B, etapa 9):
     # o link ja esta na tarefa do ADVBOX e nos convites de agenda, e nao pode
     # quebrar. Sem isso, cada revisao criava um arquivo novo com o mesmo nome e
-    # a pasta acumulava duplicatas - foi o que aconteceu na peca de um cliente
+    # a pasta acumulava duplicatas - foi o que aconteceu na peca do Cliente AG
     # (10/09/2026).
     existente = _listar(
         drive_service,

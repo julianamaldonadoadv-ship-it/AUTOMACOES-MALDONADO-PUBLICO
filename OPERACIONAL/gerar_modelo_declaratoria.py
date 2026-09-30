@@ -8,7 +8,7 @@ de `docs/`, que são versionados enquanto os .pdf não). Para alterar o modelo,
 altere aqui e regenere — nunca edite o .docx à mão, ou a próxima regeneração
 apaga a alteração.
 
-O texto-base é a peça real de um caso do escritório x Banco do Brasil
+O texto-base é a peça real do caso Cliente X x Banco do Brasil
 (Cédula Rural Pignoratícia, 4ª Vara Cível de Porto Velho), generalizada em
 campos `[[ASSIM]]` e reestruturada segundo a skill `descaracterizacao-mora`
 v4.15. Os componentes visuais saem de `OPERACIONAL/visual_law.py`; o porquê de
@@ -16,7 +16,7 @@ cada um está em `.claude/skills/descaracterizacao-mora/MODELO_INICIAL.md`.
 
 Enxugamento de 10/09/2026 (Dra. Juliana): peça do padrão Dr. Marcello é curta e
 certeira, não longa. A primeira versão do modelo saiu com 28 tabelas para 3.700
-palavras — corrigiu o excesso da peça original (99 parágrafos, zero tabelas) e
+palavras — corrigiu o excesso da peça Cliente X (99 parágrafos, zero tabelas) e
 passou do ponto para o outro lado. Foram removidos os componentes que apenas
 repetiam em quadro o que o parágrafo ao lado já dizia: a caixa DELIMITAÇÃO DA
 CONTROVÉRSIA (repetia o quadro EM SÍNTESE), a cadeia dos dois elos, o quadro do
@@ -649,18 +649,11 @@ def construir():
         "Não incluir, aqui nem em qualquer outro ponto da peça, requerimento de prova pericial "
         "contábil, nem mesmo em caráter subsidiário. Restrição Absoluta nº 18: pedido "
         "subsidiário de perícia foi o fundamento textualmente citado para indeferir a tutela de "
-        "evidência nos autos 0000000-00.0000.0.00.0000.")
+        "evidência nos autos 0000050-81.2026.8.22.0016.")
 
-    # ------------------------------------------------------------------
-    # VII — Valor da causa
-    # ------------------------------------------------------------------
-    vl.titulo_secao(doc, "VII", "Do valor da causa")
-
-    vl.paragrafo(
-        doc,
-        "Dá-se à causa o valor de R$ 1.000,00 (mil reais), por se tratar de pedido declaratório "
-        "sem conteúdo econômico imediatamente aferível, não se postulando recálculo, restituição "
-        "ou proveito patrimonial direto.")
+    # Valor da causa: uma linha antes do fecho, sem tópico próprio (Dra. Juliana, 16/09/2026:
+    # tópico específico chama atenção para o valor).
+    vl.paragrafo(doc, "Dá-se à causa o valor de R$ 1.000,00 (mil reais).")
 
     # ------------------------------------------------------------------
     # Fecho

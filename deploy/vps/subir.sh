@@ -131,6 +131,7 @@ fi
 titulo "4. Arquivos da camada de deploy"
 for f in deploy/vps/provisionar.sh deploy/vps/enviar.sh deploy/vps/saude.sh \
          deploy/vps/rotina_intimacoes.sh deploy/kpi_diario.sh \
+         deploy/controladoria_diaria.sh \
          deploy/vps/systemd/maldonado-intimacoes.service \
          deploy/vps/systemd/maldonado-intimacoes.timer \
          deploy/vps/systemd/maldonado-kpi.service \

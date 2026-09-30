@@ -40,6 +40,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'config'))
 import advbox_integration as advbox
 import comunica_djen
 import prazos
+import providencia
 import roteamento_controller as roteamento
 from triagem_divida_rural import (triagem_lote, classificar_resultado,
                                   ato_dirigido_a_parte_contraria)
@@ -126,6 +127,18 @@ def _contexto(item, marcos_prazo):
     return '\n'.join(linhas)
 
 
+def _polo_nosso(item, lawsuit):
+    """'ativo'/'passivo' pelo campo destinatarios[].polo do DJEN, o mesmo criterio
+    do KPI; None quando nao da para afirmar."""
+    try:
+        import kpi_exito
+        r = kpi_exito.polo_pelas_partes_djen(item.get('partes_polo'),
+                                             kpi_exito.clientes_do_escritorio(lawsuit))
+        return (r or {}).get('polo')
+    except Exception:
+        return None
+
+
 def montar_plano(item, lawsuit=None, hoje=None):
     """Devolve o plano de acao de UM item de triagem.
 
@@ -147,18 +160,23 @@ def montar_plano(item, lawsuit=None, hoje=None):
 
     # --- prazos ---
     m = None
+    pelos_ed = False
     if item.get('prazo_dias_extraido'):
         m = prazos.calcular(item.get('data_disponibilizacao') or item.get('data'),
                             item['prazo_dias_extraido'], hoje=hoje)
     if not m and item.get('tipo_ato') in ('sentenca', 'decisao'):
-        # Ato decisorio sem prazo no texto: o D-5/D-3 segue o RECURSO PRINCIPAL
-        # (15 dias uteis). A janela dos ED (5 dias) nao entra aqui — ela e' o
-        # prazo da tarefa de ANALISE DA MEDIDA CABIVEL, logo abaixo. Antes o
-        # agendamento inteiro saia com 5 dias e comprimia tudo sem necessidade.
-        m = prazos.calcular(item.get('data_disponibilizacao') or item.get('data'), 15, hoje=hoje)
+        # Ato decisorio sem prazo no texto: o D-5/D-3 segue os EMBARGOS DE
+        # DECLARACAO (5 dias uteis), que o POP-CJ-003-A manda montar primeiro.
+        # Ate 21/09/2026 seguia o recurso principal (15 dias) e as controllers
+        # apontaram, na conferencia, que isso atrasava justamente o prazo curto.
+        # Sem vicio, a analise do advogado muda a peca e a controller reagenda
+        # pelo recurso principal.
+        m = prazos.calcular(item.get('data_disponibilizacao') or item.get('data'), 5, hoje=hoje)
         if m:
-            pendencias.append('prazo nao veio no texto: D-5/D-3 pelo recurso principal '
-                              '(15 dias uteis) — conferir o prazo real')
+            pelos_ed = True
+            pendencias.append('prazo nao veio no texto: D-5/D-3 pelos EMBARGOS DE DECLARACAO '
+                              '(5 dias uteis); sem vicio, reagendar pelo recurso principal '
+                              '(15 dias uteis)')
 
     contexto = _contexto(item, m)
 
@@ -167,6 +185,10 @@ def montar_plano(item, lawsuit=None, hoje=None):
         `fatal` vai no campo de prazo do ADVBOX. Regra da Dra. Juliana (10/09/2026):
         a tarefa tem que cair NA data do marco - nascer toda com a data de hoje
         foi o defeito do primeiro teste."""
+        if not lawsuit_id:
+            # a API exige lawsuits_id: sem cadastro nao ha tarefa (a pendencia ja
+            # esta no relatorio). As controllers marcaram N/A nessas linhas.
+            return
         tid = tipos.get(chave_tipo)
         if not tid:
             pendencias.append(f'TIPOS_TAREFA["{chave_tipo}"] nao configurado em config/equipe.py')
@@ -186,6 +208,78 @@ def montar_plano(item, lawsuit=None, hoje=None):
             'start_date': prazos.iso(quando) if quando else None,
             'date_deadline': prazos.iso(fatal) if fatal else None,
         })
+
+    hoje_d = prazos._para_date(hoje) or date.today()
+    d1 = prazos.somar_dias_uteis(hoje_d, 1)
+    classe = item.get('classe') or ''
+
+    def _fim(observacao):
+        return {'item': item, 'roteamento': rot, 'marcos': None, 'tarefas': tarefas,
+                'pendencias': pendencias, 'observacao': observacao}
+
+    # --- recurso DISTRIBUIDO no 2o grau (regra da Dra. Juliana, 21/09/2026) ---
+    # A controller agenda o despacho com o relator em 1 dia util; na apelacao,
+    # o advogado decide, justificando, se a sustentacao oral sera presencial.
+    dist = providencia.distribuicao_segundo_grau(item, classe)
+    if dist:
+        _tarefa('despacho com o relator (agendar)', 'AGENDAR_DESPACHO',
+                [rot.get('from_id'), rot.get('guest_id')],
+                contexto + '\n\nRecurso DISTRIBUIDO no 2o grau. Agendar o despacho com o '
+                           'RELATOR (gabinete indicado na certidao de distribuicao) e '
+                           'informar a data ao advogado.', d1, d1)
+        if dist == 'pedido_efeito_suspensivo':
+            _tarefa('analise da medida cabivel (advogado)', 'ANALISE_MEDIDA',
+                    [rot.get('guest_id')],
+                    contexto + '\n\nPedido de efeito suspensivo DISTRIBUIDO. Conferir quem pediu '
+                               '(nosso ou da parte contraria) e o que responder ao relator.', d1, d1)
+        if dist == 'apelacao':
+            _tarefa('sustentacao oral: presencial? (advogado)', 'ANALISE_MEDIDA',
+                    [rot.get('guest_id')],
+                    contexto + '\n\nApelacao distribuida. Analisar se a SUSTENTACAO ORAL sera '
+                               'PRESENCIAL, por videoconferencia ou dispensada, SEMPRE de forma '
+                               'justificada (relevancia do caso, perfil da camara, valor em '
+                               'discussao). A resposta alimenta a cotacao de viagem.', d1, d1)
+        return _fim(f'{dist.replace("_", " ")} distribuido no 2o grau: despacho com o relator')
+
+    # --- INCLUSAO EM PAUTA: despacho com os vogais + memoriais ---
+    pauta = providencia.inclusao_em_pauta(item, classe)
+    if pauta:
+        cr, sessao = pauta
+        if sessao:
+            ate_vogais = prazos.subtrair_dias_uteis(sessao, 1)
+            ate_memoriais = prazos.subtrair_dias_uteis(sessao, 2)
+            linha_sessao = f'Sessao: {prazos.iso(sessao)}.'
+        else:
+            ate_vogais = ate_memoriais = None
+            linha_sessao = 'Data da sessao NAO lida no texto: conferir e ajustar os prazos.'
+            pendencias.append('pauta sem data de sessao reconhecida: prazos de vogais e '
+                              'memoriais a definir pela controller')
+        _tarefa('despacho com os vogais (agendar)', 'AGENDAR_DESPACHO',
+                [rot.get('from_id'), rot.get('guest_id')],
+                contexto + f'\n\nRecurso INCLUIDO EM PAUTA. {linha_sessao}\nAgendar despacho com '
+                           'os VOGAIS antes da sessao e avaliar com o advogado se vale NOVO '
+                           'despacho com o relator.', d1, ate_vogais)
+        _tarefa('memoriais (advogado)', 'REVISAO_PECA',
+                [rot.get('guest_id')],
+                contexto + f'\n\nRecurso INCLUIDO EM PAUTA. {linha_sessao}\nPreparar os '
+                           'MEMORIAIS para relator e vogais e dizer, justificando, se vale novo '
+                           'despacho com o relator. Sustentacao oral ou pedido de destaque '
+                           'costumam ter prazo de ate 48h antes da sessao: conferir na pauta.',
+                d1, ate_memoriais)
+        return _fim(f'{cr.replace("_", " ")} incluido em pauta: vogais + memoriais')
+
+    # --- ato que nao pede nada de nos (conferencia das controllers, 10-17/09) ---
+    nivel, motivo = providencia.sem_providencia_nossa(item, _polo_nosso(item, lawsuit))
+    if nivel == 'burocratico':
+        return _fim('sem providencia nossa: ' + motivo)
+    if nivel == 'so_analise':
+        if rot.get('guest_id'):
+            _tarefa('analise da medida cabivel (advogado)', 'ANALISE_MEDIDA',
+                    [rot['guest_id']],
+                    contexto + f'\n\nA rotina nao viu providencia nossa: {motivo}. Conferir o '
+                               'teor e, se houver o que fazer, avisar a controller para agendar.',
+                    d1, d1)
+        return _fim('so analise, sem peca: ' + motivo)
 
     # --- item que a rotina nao decide sozinha -> conferencia da controller ---
     # A controller so precisa conferir quando o classificador NAO chegou a um
@@ -273,24 +367,27 @@ def montar_plano(item, lawsuit=None, hoje=None):
 
         # Setor de provas, 1a tarefa: comeca no 1o dia util APOS a intimacao -
         # nao adianta so cobrar a pasta no D-5, a coleta precisa comecar agora
-        # (regra da Dra. Juliana, 10/09/2026).
+        # (regra da Dra. Juliana, 10/09/2026). Embargos de declaracao nao juntam
+        # documento: sem tarefa do setor (conferencia das controllers, 15/09).
         inicio_coleta = prazos.somar_dias_uteis(prazos._para_date(hoje) or date.today(), 1)
-        _tarefa('coleta de documentos (setor de provas)', 'ORGANIZAR_DOCUMENTOS',
-                _setor_provas(),
-                contexto + '\n\nIniciar a coleta dos documentos do protocolo. Lista sugerida '
-                           'pela automacao a partir do ato e da tese — e palpite, conferir e '
-                           'completar:\n' + _rol_sugerido(item) +
-                           f"\n\nA pasta precisa estar FECHADA no Zeus ate {prazos.iso(m['d5'])} "
-                           '(D-5), quando ha tarefa propria de conferencia.',
-                inicio_coleta, m['d5'])
+        if not (pelos_ed and providencia.classe_recursal(classe) in
+                ('agravo_instrumento', 'agravo_interno')):
+            _tarefa('coleta de documentos (setor de provas)', 'ORGANIZAR_DOCUMENTOS',
+                    _setor_provas(),
+                    contexto + '\n\nIniciar a coleta dos documentos do protocolo. Lista sugerida '
+                               'pela automacao a partir do ato e da tese — e palpite, conferir e '
+                               'completar:\n' + _rol_sugerido(item) +
+                               f"\n\nA pasta precisa estar FECHADA no Zeus ate {prazos.iso(m['d5'])} "
+                               '(D-5), quando ha tarefa propria de conferencia.',
+                    inicio_coleta, m['d5'])
 
-        # Setor de provas, 2a tarefa: em D-5 a pasta tem que estar pronta no Zeus
-        _tarefa('pasta fechada no Zeus (setor de provas)', 'CONFERIR_PASTA',
-                _setor_provas(),
-                contexto + '\n\nD-5: conferir a pasta do protocolo no Zeus e dar por FECHADA — '
-                           'e com ela que a Controladoria protocola em D-3. Faltando documento, '
-                           'sinalizar a controller HOJE, nao no D-3.',
-                m['d5'], m['fatal'])
+            # Setor de provas, 2a tarefa: em D-5 a pasta tem que estar pronta no Zeus
+            _tarefa('pasta fechada no Zeus (setor de provas)', 'CONFERIR_PASTA',
+                    _setor_provas(),
+                    contexto + '\n\nD-5: conferir a pasta do protocolo no Zeus e dar por FECHADA — '
+                               'e com ela que a Controladoria protocola em D-3. Faltando documento, '
+                               'sinalizar a controller HOJE, nao no D-3.',
+                    m['d5'], m['fatal'])
 
         # Protocolo: advogado E controller, sempre (regra da Dra. Juliana)
         _tarefa('protocolo (controladoria)', 'PROTOCOLO_D3',
@@ -308,7 +405,7 @@ def montar_plano(item, lawsuit=None, hoje=None):
     chave_resultado = classificar_resultado(item.get('trecho_integral') or item.get('trecho') or '')
     if chave_resultado:
         tid = _tipos_resultado().get(chave_resultado)
-        if tid and rot.get('from_id'):
+        if tid and rot.get('from_id') and lawsuit_id:
             tarefas.append({
                 'rotulo': f'marcador de resultado: {chave_resultado}',
                 'task_id': tid,
@@ -426,6 +523,8 @@ def rodar(dias=1, gravar=False, hoje=None):
         proc = ''.join(filter(str.isdigit, it.get('processo') or ''))
         lawsuit = lawsuits.get(proc)
         it['data_disponibilizacao'] = resumo.get('data')
+        it['classe'] = resumo.get('classe')
+        it['partes_polo'] = resumo.get('partes_polo')
         it['lawsuit_id'] = (lawsuit or {}).get('id')
         it['roteamento'] = roteamento.resolver(lawsuit=lawsuit)
         it['roteamento_descricao'] = roteamento.descrever(it['roteamento'])

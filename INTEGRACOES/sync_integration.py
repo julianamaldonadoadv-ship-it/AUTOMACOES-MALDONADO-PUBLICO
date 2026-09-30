@@ -212,7 +212,11 @@ def _timeout():
 # ============================================================
 
 _CHAVES_LISTA = ('itens', 'items', 'data', 'resultados', 'results',
-                 'intimacoes', 'prazos', 'processos', 'registros', 'rows')
+                 'intimacoes', 'prazos', 'processos', 'registros', 'rows',
+                 # envelopes reais conferidos em 21/09/2026 (GET /v1/monitores
+                 # devolve {"monitores": [...]}; sem isto o diagnostico dizia
+                 # "0 monitores" com a OAB RO5769 ativa):
+                 'monitores', 'credenciais', 'webhooks', 'entregas', 'publicacoes')
 
 
 def _extrair_lista(payload):
@@ -447,6 +451,21 @@ def obter_processo(numero):
     return _request('GET', EP_PROCESSO.replace('{numero}', str(numero)))
 
 
+def sincronizar_processo(numero, confirmado=False):
+    """POST /v1/processos/{n}/sincronizar: enfileira a importacao do processo a
+    partir do PDPJ e o vincula a conta. Escrita travada (SYNC_PERMITIR_ESCRITA +
+    confirmado): processo fora da conta consome vaga do plano."""
+    _exigir_escrita(confirmado, f'sincronizar {numero}')
+    return _request('POST', f'/v1/processos/{numero}/sincronizar')
+
+
+def ressincronizar_processo(numero, confirmado=False):
+    """POST /v1/processos/{n}/ressincronizar: releitura completa na fonte (re-lista
+    os documentos, re-tenta downloads que falharam). Escrita travada."""
+    _exigir_escrita(confirmado, f'ressincronizar {numero}')
+    return _request('POST', f'/v1/processos/{numero}/ressincronizar')
+
+
 def autos(numero, pagina=1, itens=100, ordem='desc'):
     """
     Autos digitais: movimentos, documentos, intimacoes e audiencias fundidos
@@ -476,6 +495,20 @@ def documento_markdown(documento_id):
     """Texto extraido do documento (OCR) em markdown puro. 404 = sem versao markdown."""
     return _request('GET', EP_DOCUMENTO_MD.replace('{id}', str(documento_id)),
                     aceita_texto=True)
+
+
+def documento_arquivo(documento_id):
+    """URL ASSINADA do arquivo ORIGINAL do documento (o PDF que esta nos autos), valida por 1 hora.
+
+    Serve para o que o markdown nao resolve: entregar ao perito ou ao juizo a cedula e o
+    demonstrativo como o banco os juntou, e nao a transcricao de OCR. Por isso o arquivo tem de ser
+    baixado na hora e guardado no Drive, onde o link e' permanente.
+
+    404 aqui NAO significa que o documento nao existe: significa que o Sync tem o texto mas nao
+    guardou o binario (acontece em tribunal que serve o PDF so com a credencial do advogado, e foi
+    o que ocorreu no TRF5 e no TJSC em 24/09/2026). Nesse caso o arquivo vem do PJe, a mao.
+    """
+    return _request('GET', '/v1/documentos/%s/arquivo' % documento_id)
 
 
 def buscar(tipo, valor):
@@ -511,6 +544,74 @@ def criar_monitor(tipo, valor, confirmado=False):
     """
     _exigir_escrita(confirmado, f'criar monitor {tipo}={valor} (afeta a cota do plano)')
     return _request('POST', EP_MONITORES, json_data={'tipo': tipo, 'valor': valor})
+
+
+def descobertos(monitor_id):
+    """Processos que o monitor achou mas NAO estao ativados (sem coleta, sem
+    intimacao). Traz tambem o bloco `cobranca` (vagas no plano, preco do excedente)."""
+    return _request('GET', f'{EP_MONITORES}/{monitor_id}/descobertos')
+
+
+def confirmar_selecao(monitor_id, numeros=None, todos=False, confirmado=False):
+    """
+    ESCRITA. Ativa o monitoramento dos processos descobertos.
+
+    ATENCAO - CUSTO: o que couber nas vagas do plano ativa na hora; o que passar
+    do teto NAO ativa e vira fatura avulsa PRE-PAGA (a resposta traz o link), e
+    a coleta desses so comeca na baixa. Processo ativado conta no plano da
+    competencia: desligar no mesmo mes nao estorna.
+    """
+    if not todos and not numeros:
+        raise ValueError('informe numeros ou todos=True')
+    _exigir_escrita(confirmado, 'ativar processos descobertos (afeta o plano/fatura)')
+    corpo = {'todos': True} if todos else {'numeros': list(numeros)}
+    return _request('POST', f'{EP_MONITORES}/{monitor_id}/confirmar', json_data=corpo)
+
+
+def importar_processos(numeros, lote_id=None, confirmado=False):
+    """
+    ESCRITA. Importa processos por numero CNJ (ate 5.000 por lote) e poe em
+    monitoramento continuo. Acima do teto do plano o lote entra como
+    "aguardando selecao" num monitor tipo `importacao`: ativar com
+    `confirmar_selecao()` nesse monitor (gera fatura avulsa pre-paga).
+    `lote_id` torna o envio idempotente (reenviar nao enfileira de novo).
+    """
+    _exigir_escrita(confirmado, f'importar {len(numeros)} processo(s) (afeta o plano/fatura)')
+    corpo = {'numeros': list(numeros), 'monitorar': True}
+    if lote_id:
+        corpo['lote_id'] = lote_id
+    return _request('POST', '/v1/processos/importar', json_data=corpo)
+
+
+def desligar_monitoramento(numero, confirmado=False):
+    """ESCRITA. Para de acompanhar o processo (os dados ja lidos continuam
+    acessiveis; sincronizar o numero de novo religa). Nao e' o DELETE do
+    processo, que esconde da carteira e bloqueia o discovery."""
+    _exigir_escrita(confirmado, f'desligar monitoramento de {numero}')
+    return _request('DELETE', f'/v1/processos/{numero}/monitoramento')
+
+
+def bloquear_processo(numero, confirmado=False):
+    """ESCRITA. Bloqueia o processo: ele sai do monitoramento e a API passa a
+    recusar leitura dele (403 "Processo bloqueado"). Libera a vaga do plano."""
+    _exigir_escrita(confirmado, f'bloquear o processo {numero}')
+    return _request('POST', f'/v1/processos/{numero}/bloquear')
+
+
+def desbloquear_processo(numero, confirmado=False):
+    """
+    ESCRITA. Tira o processo do bloqueio e o devolve ao monitoramento.
+
+    ATENCAO - CUSTO: desbloquear OCUPA UMA VAGA do plano. Dentro do teto nao
+    gera cobranca; acima dele o Sync cobra por processo excedente. Conferir o
+    total monitorado (`GET /v1/processos` -> `total`) contra o limite do plano
+    (`GET /v1/conta/planos`) ANTES de desbloquear em lote.
+
+    Processo bloqueado recusa `sincronizar_processo()` com 409: desbloquear
+    vem primeiro, e so depois a sincronizacao traz os autos.
+    """
+    _exigir_escrita(confirmado, f'desbloquear o processo {numero} (ocupa vaga do plano)')
+    return _request('DELETE', f'/v1/processos/{numero}/bloquear')
 
 
 def listar_webhooks():
@@ -615,7 +716,10 @@ def resumir_intimacao(item, teor_integral=None):
         partes.append(nome)
         if polo:
             partes_polo.append({'nome': nome, 'polo': _normalizar_polo(polo)})
-    polo_indisponivel = bool(partes) and not partes_polo
+    # A intimacao do Sync (lista E detalhe, conferido em 21/09/2026) nao traz
+    # parte nem polo: isso so existe no cadastro do processo. Sem polo lido,
+    # a marca sobe sempre - inclusive quando nao veio parte nenhuma.
+    polo_indisponivel = not partes_polo
 
     advogados = []
     for a in (item.get('advogados') or item.get('destinatarioadvogados') or []):
@@ -753,7 +857,7 @@ def testar_conexao():
         return False
 
     achatado = _achatar(dados)
-    nome = _primeiro(achatado, 'nome', 'escritorio', 'razao_social', 'tenant_nome')
+    nome = _primeiro(achatado, 'conta', 'nome', 'escritorio', 'razao_social', 'tenant_nome')
     plano = _primeiro(achatado, 'plano', 'plano_nome', 'assinatura.plano')
     print(f'  Conexao OK. Conta: {nome or "(sem nome)"} | Plano: {plano or "-"}')
 

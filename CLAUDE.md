@@ -21,6 +21,8 @@ MALDONADO_ADVOGADOS/
 │   ├── main.py                     # Comandos: tarefas / processos / prazos / triagem / intake / criar-tarefa / drive / anexos / kpi / vault
 │   ├── triagem_divida_rural.py     # Classificador: intimacao -> tese -> peca necessaria -> prioridade
 │   ├── intake_atende_direito.py    # Lead qualificado (Atende Direito) -> cliente + processo ADVBOX + pasta Drive
+│   ├── custas_protocolo.py         # Trava de custas antes do protocolo: inicial ->
+│   │                                #  gratuidade x guia x documentos (POP-CJ-006)
 │   ├── vault_obsidian.py           # Banco de teses: apuracao de KPI -> nota de caso e de orgao
 │   │                                #  julgador no vault Obsidian (BASE_CONHECIMENTO/)
 │   └── anexos_inicial.py           # Documentos da inicial: inventario da pasta do cliente -> rol da tese
@@ -65,11 +67,10 @@ MALDONADO_ADVOGADOS/
 > Ver `docs/_WHITE_LABEL_SPEC.md` §5. O **Atende Direito entrou no escopo** (Squad Comercial/Intake
 > — ver seção abaixo).
 >
-> **Contratado ≠ integrado — o caso do SYNC:** o Sync (monitoramento processual do Atende
-> Direito, outro produto que não o CRM) **não foi contratado**. A integração existe escrita e
-> testada em `INTEGRACOES/sync_integration.py`, mas está inerte por falta de chave: nenhuma
-> chamada sai, e a triagem segue no DJEN. Foi deixada pronta de propósito, para a decisão de
-> contratar não depender de tempo de desenvolvimento. Ver `docs/INTEGRACAO_SYNC.md`.
+> **SYNC — ativo desde 21/09/2026, somente leitura:** o Sync (monitoramento processual do
+> Atende Direito, outro produto que não o CRM) foi contratado e a chave está no `config/.env`.
+> A triagem **continua no DJEN por padrão**; o Sync entra com `--fonte sync` ou `--fonte ambas`.
+> Ver `docs/INTEGRACAO_SYNC.md` e a seção "SYNC API" abaixo.
 
 ## Squad Controladoria (OPERACIONAL) — PRIORIDADE 1
 
@@ -110,6 +111,40 @@ Regras:
 - A API DJEN é instável (alterna respostas de "sistema ocupado" e falso-vazio para a mesma
   consulta) — o módulo já trata isso com retry/backoff; se mesmo assim vier vazio, o script avisa
   em vez de reportar silenciosamente "nenhuma intimação".
+
+### O que a rotina agenda — calibrado pela conferência das controllers (21/09/2026)
+
+`OPERACIONAL/providencia.py` decide o que a intimação pede **de nós** antes de abrir tarefa. Nasceu das
+572 linhas conferidas pelas controllers na planilha de conferência (rodadas 10–17/09): contra essa
+conferência, a rotina antiga acertava **54%** das tarefas de 15–17/09 e a atual acerta **90%** (325 → 188
+tarefas). Regras (não desfazer):
+- **Decisão sem prazo no texto → marcos dos embargos de declaração (5 dias úteis)**, não do recurso
+  principal (15). Sem vício, o advogado avisa e a controller reagenda. ED em agravo não gera tarefa do
+  setor de provas.
+- **Ato burocrático** (remessa dos autos, migração de sistema) → nenhuma tarefa. **Ordem só à parte
+  contrária** (pelo `destinatarios[].polo` do DJEN) ou **andamento sem ordem para nós** (Sisbajud deferido,
+  "à CPE para que prossiga") → só a análise do advogado, sem peça nem protocolo. Sinal de decisão
+  desfavorável, sentença ou ordem às partes/ao advogado mantêm o fluxo completo.
+- O comando só conta com **verbo de ordem** ("intime-se a parte exequente", "fica a parte requerente
+  intimada"): o cabeçalho do ato ("ADVOGADO DO EMBARGADO:") não é ordem.
+- **Processo sem cadastro no ADVBOX não gera tarefa nem marcador**, só pendência.
+- **2º grau (Dra. Juliana, 21/09/2026):** recurso distribuído → controller agenda **despacho com o
+  relator** (D+1); na **apelação**, o advogado decide em D+1, **justificando**, se a sustentação oral será
+  presencial (cotação de viagem). **Inclusão em pauta** → despacho com os **vogais** + **memoriais**
+  (avaliar novo despacho com o relator), com prazo pela data da sessão lida no texto.
+- Rodada das 08:00 no Mac: `deploy/controladoria_diaria.sh` (intimações em simulação + despachos +
+  custas), via `com.maldonado.controladoria.plist`, até a VPS assumir.
+- **Rodada perdida se repõe sozinha** (22/09/2026): `OPERACIONAL/rotina_recuperar.py` guarda a última
+  rodada publicada em `_trabalho/logs/ultima_rodada_intimacoes.txt` e refaz **cada dia útil que faltou**,
+  um por vez, com a data daquele dia (o D-5/D-3 conta da publicação, então varrer tudo numa rodada só
+  falsearia os marcos). Teto de 7 dias por chamada, e dia com falha do DJEN **não** é marcado como feito.
+  Os despachos usam janela de 7 dias, que o upsert por id de tarefa torna idempotente.
+- **Armadilha do macOS (TCC):** o projeto está em `~/Documents`, pasta protegida. O agente do launchd
+  roda como `/bin/bash`, que **não tem Acesso Total ao Disco**, e a rodada morre com
+  `Operation not permitted` — foi o que aconteceu em 22/09/2026 (a planilha de despachos ficou parada
+  em 18/09). Conferir sempre `_trabalho/logs/controladoria_launchd.err`. Sai disso de dois jeitos:
+  dar Acesso Total ao Disco a `/bin/bash` (Ajustes → Privacidade e Segurança) ou mover o projeto para
+  fora de `~/Documents`. Na VPS o problema não existe.
 
 ### Quem lança a intimação — controller por advogado (POP-CJ-003-D)
 
@@ -154,8 +189,8 @@ concordam (`step` = ARQUIVAMENTO e `stage` = ARQUIVADO...), com 55 processos em 
 48 deles "CRIADO EQUIVOCADAMENTE" —, então o código considera arquivado se **qualquer um** marcar.
 `status_closure` (data de encerramento) não serve sozinho: 648 processos têm data e seguem ativos.
 
-Agnaldo Ferreira de Lima, o maior volume individual da carteira (288), não entra no mapa por
-decisão da Dra. Juliana: não é advogado ativo — e 287 dos 288 processos dele já estão arquivados.
+Responsável que não é mais advogado ativo do escritório não entra no mapa, por decisão da
+Dra. Juliana, mesmo quando concentra grande volume de processos (em regra já arquivados): cai na regra 4.
 
 **Carga resultante nos 1.163 processos ativos:** Manuelle 733 (585 dos advogados dela + 92 da
 regra 4 + 56 em que ela é a responsável), Nataly 430 (328 + 74 + 28 da direção). Nenhum processo
@@ -295,6 +330,7 @@ metodologia**, que é o mesmo guard-rail já valendo para `descaracterizacao-mor
 | `jurisprudencia-rural` | Ementa pronta para citar — 315 precedentes indexados por tese | Coletânea Leopoldo Castilho |
 | `analise-pontos-controvertidos` | Matriz fato a fato: inicial x contestação, ônus da prova, saneamento (art. 357) | Metodologia do escritório |
 | `prescricao-intercorrente` | Prescrição trienal em execução (art. 921 CPC, LUG art. 70) + calculadora de prazo | Metodologia do escritório |
+| `jurimetria-estrategica` | Briefing antes de redigir: o que a vara e o tribunal decidiram na tese, o que derruba a tese ali (vira prova), acórdãos favoráveis/contrários e óbices do STJ para prequestionar desde a inicial | Base de julgados do DJEN (17/09/2026) |
 | `rogerio-augusto` | **Referência externa** — as 4 teses do Dr. Rogério Augusto com precedente numerado, o padrão de atuação real dele e as frentes onde o escritório tem lacuna | Levantamento público (DJEN/CNJ + perfil), 11/09/2026 |
 
 Incorporadas em 11/09/2026. Notas de uso:
@@ -335,6 +371,111 @@ sem texto são folhas em branco). O OCR é do **Vision do macOS em pt-BR**, cama
 invisível sobre a imagem original, que não foi recomprimida. **O texto é OCR, não é o original do
 editor**: serve para localizar a passagem, mas **citação em peça se confere contra a página** —
 mesmo guard-rail de nunca escrever "conforme documento anexo" sem abrir o documento.
+
+## Trava de custas antes do protocolo (OPERACIONAL) — POP-CJ-006 x POP-CJ-PROT-001
+
+Nasceu de um caso real: a declaratória da Sra. Cliente G (**0000021-76.2026.8.22.0001**) foi
+protocolada em 22/09/2026 às 10:49 **sem o recolhimento das custas**. As tarefas de custas
+nasceram depois do protocolo — RECOLHER CUSTAS às 10:53 e SOLICITAR DOCUMENTAÇÃO ("documentos
+para emenda: comprovante de residência e juntada de custas") às 10:57. A peça ainda **anunciava
+a guia no rol de documentos** ("... e guia de recolhimento das custas iniciais") sem que a guia
+existisse.
+
+```
+python OPERACIONAL/main.py custas fila --dias 5              # o que vai a protocolo (roda sozinho as 08:00)
+python OPERACIONAL/main.py custas conferir peca.docx --cliente "NOME" --processo 7001234-56.2026.8.22.0001
+python OPERACIONAL/main.py custas conferir peca.docx --cliente "NOME" --acao-peca mora --criar-tarefa
+python OPERACIONAL/main.py custas conferir peca.docx --apesar-de "prazo fatal hoje - Dra. Juliana autorizou"
+python OPERACIONAL/main.py custas auditar --dias 7            # so relatorio
+python OPERACIONAL/main.py custas auditar --dias 7 --criar-tarefa
+python OPERACIONAL/custas_protocolo.py --autoteste
+```
+
+**Três camadas, de propósito — só a do meio depende de alguém rodar.**
+
+| Camada | Comando | Quando | O que enxerga |
+|---|---|---|---|
+| **Fila** | `custas fila` | **automática**, 08:00 | As tarefas `PEÇA APROVADA PARA PROTOCOLO` e `PROTOCOLO D-3/D-2/D-1` dos próximos dias: o que vai a protocolo sem guia/pagamento registrado. **Não lê a peça** |
+| **Peça** | `custas conferir` | a controller roda no arquivo | Leitura completa: gratuidade, marcadores, rol de documentos, valor da causa. **Sai com status 1** quando bloqueia |
+| **Auditoria** | `custas auditar` | **automática**, 08:00 | O que já foi protocolado sem custas nos últimos dias — rede de segurança |
+
+**Por que a fila não lê a peça:** conferido em 22/09/2026, as tarefas de protocolo do ADVBOX
+**não trazem a peça anexada** (`GET /documents?post_id=` volta vazio nas 66 tarefas PROTOCOLO D-3
+abertas). Então a rodada automática confere pela fila (rótulo da tarefa + histórico de custas do
+processo) e a leitura do texto fica com o `conferir`, rodado no arquivo.
+
+A pergunta que a trava responde, nesta ordem: **é inicial ou recurso? → inicial: tem tópico de
+gratuidade? tem os documentos que o sustentam? senão, guia emitida + comprovante juntado + CS
+acionado → recurso: preparo comprovado?**
+
+### Recurso é preparo, não custa inicial — e não tem emenda
+
+Dispositivos conferidos no CPC do vault (`06 - LEGISLACAO/CPC/`), não citados de memória:
+
+- **art. 1.007, caput** — preparo comprovado **no ato da interposição**, sob pena de deserção.
+- **art. 1.007, § 4º** — não comprovado, intima-se para recolher **em dobro**; **§ 5º** veda a
+  complementação nesse recolhimento. É a diferença que importa: na inicial há 15 dias de emenda
+  (art. 321); no recurso, **não há segunda chance**.
+- **art. 1.007, § 3º** — porte de remessa e retorno dispensado em autos eletrônicos: no PJe
+  cobra-se só o preparo.
+- **art. 1.017, § 1º** — o agravo vai acompanhado do comprovante do pagamento (as cópias do
+  inciso I são dispensadas em autos eletrônicos, § 5º — o comprovante não).
+- **art. 1.023** — embargos de declaração **não se sujeitam a preparo**. Agravo interno e
+  contrarrazões também ficam fora (`STATUS NAO SE APLICA`).
+- **art. 98, § 1º, I** — a gratuidade compreende taxas e custas. Gratuidade **deferida** dispensa
+  o preparo; gratuidade apenas **pedida** no recurso não dispensa por si — a trava manda conferir
+  a decisão antes de protocolar.
+
+Regras e armadilhas (não desfazer):
+- **A peça anunciar a guia no rol NÃO é prova de recolhimento** — é promessa a conferir
+  (`GUIA_ANUNCIADA_NAO_JUNTADA`). Ler aquilo como prova liberaria justamente o protocolo que deu
+  errado. O juízo lê o rol, não encontra o anexo e intima para emenda.
+- **`[PENDENTE]` / `[[INSERIR ...]]` vivo na minuta bloqueia.** Mesmo guard-rail da skill
+  `timbrado`: nunca "conforme documento anexo" sem documento. O modelo da declaratória já sai com
+  `[PENDENTE] declaração de hipossuficiência assinada` no tópico de gratuidade — é esse marcador
+  que a trava cobra.
+- **Gratuidade sem declaração na pasta bloqueia; sem prova de renda, é ressalva.** Art. 99, § 2º:
+  havendo nos autos elementos que contrariem a alegação, o juízo indefere — produtor rural com
+  área e maquinário cai nessa hipótese com frequência.
+- **A natureza da peça sai do verbo, não do nome do recurso.** Só conta "vem ... interpor/opor/
+  apresentar o presente X". Sem isso, as contrarrazões do Cliente R viravam agravo (o endereçamento
+  é "EXCELENTÍSSIMO RELATOR DO AGRAVO DE INSTRUMENTO 0000029-00...") e a inicial da Sra. Cliente G
+  virava recurso especial (citava o REsp 1.061.530/RS do Tema 28). Nome citado **sem** o verbo vira
+  aviso, nunca conclusão.
+- **Rótulo da fila com fronteira de palavra:** `\bacao\b`. Sem ela, "Protocolar manifestação.
+  (document**ação** pendente)" entrava como inicial — apareceu na fila real de 22/09/2026.
+- **Na auditoria do que já foi protocolado, o filtro é o número CNJ:** origem `0000` é processo
+  originário do tribunal e processo de ano anterior cadastrado agora é cadastro tardio, não
+  distribuição nova. Sem esse filtro a auditoria de 10 dias trazia 9 falsos — e alarme falso é o
+  que faz a controller parar de ler.
+- **O valor da causa sai de "dá-se à causa"**, não de "valor de R$ ..." solto: na peça da Cliente G o
+  genérico pegava R$ 787.500,00 (o contrato) contra a causa de R$ 1.000,00.
+- **O processo que vem dentro da tarefa (`/posts`) não traz `responsible_id`** — só id, número
+  e cliente. Sem ele o `roteamento_controller` cai no fallback e manda **tudo para a mesma
+  controller** (primeira rodada da fila: 37 tarefas para a Manuelle). A fila carrega a carteira
+  inteira uma vez (`listar_processos()`, 3 GET) e resolve o responsável pelo id.
+- **Peça intermediária fica fora da trava.** Manifestação, réplica, alegações finais: não pagam
+  custa de distribuição nem preparo. Elas caíam no ramo das custas e saíam como "SEM REGISTRO —
+  custas iniciais" — 14 dos 32 alarmes da primeira rodada eram isso.
+- **A fila custa 1 GET de `/history` por item de inicial/recurso**, e o teto do ADVBOX é 30
+  GET/min: a passada das 08:00 leva alguns minutos e imprime "Rate limit atingido. Aguardando".
+  Por isso a fila só consulta o histórico do que é inicial ou recurso com preparo — manifestação,
+  contrarrazões e ED não geram chamada.
+- **Pasta errada não bloqueia.** `google_integration.pasta_do_cliente()` cai numa busca global
+  quando o cliente não está sob a letra em `03. CLIENTES`, e devolve a pasta de **PEÇAS
+  AUTOMAÇÃO** (`FULANO - SEM PROCESSO`), que não tem documento nenhum — foi o que aconteceu com a
+  Sra. Cliente G. `pasta_confere()` detecta isso e o que depende da pasta vira **ressalva**; o que
+  vem do ADVBOX continua bloqueando. Trava que bloqueia por engano é desligada na primeira semana.
+- **`/history` devolve ~20 itens e não pagina**: "não encontrei" nunca vira "não existe", vira
+  pendência a conferir. E o que está no `/history` e não está no `/posts` foi concluído — é
+  inferência, e sai rotulada como tal.
+- **Há saída de exceção, com nome e motivo.** `--apesar-de "motivo"` libera e registra por escrito
+  na tarefa: prazo fatal no mesmo dia acontece. O que a trava impede é o protocolo sem custas
+  **silencioso**.
+- Somente leitura. Tarefa só com `--criar-tarefa` e "s/N"; quem lança é a controller do advogado
+  responsável (`roteamento_controller`), e o CS (Anna Lydia/Karla) recebe o CONTATO COM CLIENTE.
+- `drive peca` **avisa** quando a peça arquivada tem pendência de custas — avisa, não bloqueia:
+  quem bloqueia é o `custas conferir`, rodado antes do protocolo.
 
 ## Base de apontamentos da Gerência Jurídica (OPERACIONAL) — causa raiz das correções
 
@@ -496,7 +637,7 @@ tail -40 _trabalho/logs/kpi_diario.log          # conferir a última rodada
   caminhos antes de carregar.
 
 **Fonte da régua: o "7 - MANUAL DO ÊXITO JURÍDICO KPI"** (v1.0, mai/2026, Google Doc
-interno no Drive do escritório) — CEO Dr. Renan + GJ Dra. Juliana. É
+`<ID_DO_DOC_NO_DRIVE>` no Drive) — CEO Dr. Renan + GJ Dra. Juliana. É
 ele que define os 4 KPIs, os pesos e o que fica de fora. O relatório *Taxa de Êxito por Advogado
 — Jun-Jul-Ago 2026* é **aplicação** da régua a uma competência, não a régua: onde divergirem,
 vale o manual (foi o caso da meta — **20%** no manual, 30% no relatório de jun-jul).
@@ -527,8 +668,8 @@ Quando a sentença fixa **sucumbência recíproca** e mesmo assim acolhe a tese,
 Êxito **marcada `confirmar_resultado`**: é o único ponto em que o texto e a régua divergem, e a
 GJ decide. Sai destacada no relatório e no CSV.
 
-**Nem toda liminar deferida diz "tutela" no dispositivo.** A decisão que suspendeu a execução de
-uma cliente (processo 0000000-00.0000.0.00.0000) abre com *"defiro o pedido formulado pela parte autora"* —
+**Nem toda liminar deferida diz "tutela" no dispositivo.** A decisão que suspendeu a execução da
+Sra. Cliente H (0000025-78.2025.8.22.0024) abre com *"defiro o pedido formulado pela parte autora"* —
 por isso o padrão genérico existe, sempre com o guarda-negativo `_DEFERIMENTO_PROCESSUAL`
 (dilação de prazo, gratuidade, juntada, produção de prova...). Sem esse guarda, o
 *"defiro a dilação de prazo"* da **mesma cliente na mesma semana** viraria êxito de KPI 2.
@@ -538,26 +679,54 @@ Regras e armadilhas (não desfazer):
 - **Objeto acessório não entra em KPI nenhum** — gratuidade da justiça, custas, honorários
   sucumbenciais. O manual mede mérito, tutela de 1º grau, tutela recursal e êxito negocial;
   **a forma do ato não salva o objeto** (agravo cujo único objeto é a revogação da gratuidade
-  fica fora mesmo tendo efeito suspensivo deferido — caso real da carteira, processo 0000000-00.0000.0.00.0000). O teste roda só
+  fica fora mesmo tendo efeito suspensivo deferido — 0000026-04.2026.8.22.0000). O teste roda só
   no cabeçalho, no "trata-se de" e na ementa (`objeto_acessorio()`): varrer o texto inteiro
   excluiu por engano duas sentenças de mérito que citavam gratuidade na fundamentação.
 - **Objeto misto não é objeto acessório** (14/09/2026): se a região do objeto lista o pedido
   acessório **ao lado** de um pedido principal (`_OBJETO_PRINCIPAL`: efeito suspensivo aos
-  embargos, tutela de urgência, suspensão da execução), o ato fica no KPI. Os embargos de um cliente
-  (Caso A) saíam como "custas" por pedirem parcelamento de custas junto do efeito suspensivo
-  indeferido. Regressão: os dois casos reais de objeto só acessório (Casos B e C) continuam fora.
+  embargos, tutela de urgência, suspensão da execução), o ato fica no KPI. Os embargos do Cliente I
+  (0000030-00) saíam como "custas" por pedirem parcelamento de custas junto do efeito suspensivo
+  indeferido. Regressão: 0000026-04 e 0000031-00 continuam fora.
 - **Decisões da GJ por competência** (`docs/kpi_exito/DECISOES_GJ_AAAA-MM.json`): o `kpi` aplica o
   arquivo **depois** da classificação automática (`aplicar_decisoes_gj()`), senão cada rodada
   diária desfaz o fechamento da GJ. `carteira` vale para o processo; `fora_do_kpi`/`incluir` só
   para a publicação da `data`. Toda linha ajustada sai na coluna `decisao_gj` do CSV, e decisão que
-  não casar com publicação do período é impressa como `NAO APLICADA`.
+  não casar com publicação do período é impressa como `NAO APLICADA`. As semanas são renumeradas
+  **depois** de aplicar (16/09/2026): o lançamento manual de ato fora do DJEN (Cliente M,
+  0000032-00) entrava no total sem semana, e a quebra semanal não somava o total.
 - **Decisão parcialmente procedente nunca é classificada sozinha** (item 1.4 do manual): exige
   análise da Controladoria + GJ. A automação entrega a proposta fundamentada com
   `confirmar_resultado=True`, nunca a classificação final. **Isso vale só para o KPI 1.**
 - **KPI 2 e KPI 3 são binários** (itens 2.3 e 3.3): só *deferida → Êxito* e *indeferida →
   Inêxito*. **Não existe Parcial em tutela** — tutela deferida com alcance menor que o pedido
   continua sendo tutela deferida, e vale o peso cheio (regra da GJ, 10/09/2026, sobre
-  um agravo da carteira (0000000-00.0000.0.00.0000), que saía como 0,25 quando vale 0,50).
+  0000027-76.2026.8.08.0000, que saía como 0,25 quando vale 0,50).
+- **Indeferimento "por ora" CONTA no KPI** (Dra. Juliana, 29/09/2026 — reverte a regra de
+  17/09/2026): tutela indeferida "por ora", aguardando contestação, garantia do juízo ou elementos
+  novos, entra como **inêxito** de KPI 2 ou 3 conforme o grau. "Inclua tudo, inclusive os
+  indeferimentos de tutela por ora." O bloco que excluía está **comentado** em `kpi_exito.py`, com
+  instrução de como voltar atrás; `indeferimento_provisorio()` continua marcando
+  `monitorar_renovacao`, agora só como lembrete de renovar o pedido depois da contestação, não mais
+  como motivo de exclusão. Em setembro/2026 a reversão trouxe 5 decisões de volta (Cliente N ×2, Cliente O,
+  Cliente P, Cliente Q) e **baixou** a carteira rural de 26,8% para 23,7%.
+- **Sentença terminativa NÃO pontua** (Dra. Juliana, 28/09/2026): extinção sem resolução de mérito
+  (art. 485) não é inêxito de KPI 1 — só a improcedência (art. 487, I). O caso vai para
+  monitoramento e quem entra é a decisão do recurso (caso Cliente L, 0000033-00, extinto
+  pelo art. 485, VI por eficácia preclusiva da coisa julgada).
+- **Processo conduzido pelo um advogado externo não entra no KPI** (Dra. Juliana,
+  29/09/2026): o KPI mede a carteira dos advogados do mapa. Mesma lógica que deixa fora do mapa quem não é advogado ativo
+  do mapa de controllers. Vale também para ato em que a parte é o próprio Dr. Renan (RHC 247328/RO).
+- **Dispositivo sem "ante o exposto"** (17/09/2026): seção intitulada só "DISPOSITIVO" é marcador
+  (`_TITULO_DISPOSITIVO`, 0000034-00), e em ato de **1º grau** o comando de tutela na 1ª pessoa no
+  meio do texto é lido como reserva (`_TUTELA_OPERATIVA_1G`, 0000035-00) — antes o fecho "designe
+  audiência / cumpra-se" fazia a decisão parecer despacho. Não vale para 2º grau, onde o relator
+  transcreve a decisão agravada na 1ª pessoa.
+- **Acórdão não é mérito só por ser colegiado** (29/09/2026, regras da GJ de 15, 22 e 23/09 levadas
+  ao código): em `classificar_kpi()`, **agravo interno que nega provimento** (só mantém a decisão
+  anterior) fica fora; **agravo de instrumento cujo objeto é tutela** vai para o KPI 3; acórdão sobre
+  **incidente da execução** (penhora, Sisbajud, impugnação ao cumprimento, exceção) fica no KPI 1 com
+  `confirmar_resultado` — a GJ decide. Antes, 0000036-00 (Cliente J) e 0000037-00 (Cliente K) entravam
+  como mérito inêxito e derrubavam a taxa rural de set/2026 de 30,7% para 26,8%.
 - **Os pesos de tutela são diferentes:** KPI 2 (1º grau) = **0,4**, KPI 3 (recursal) = **0,5**.
   O que decide é o grau em que o ato foi proferido, não o objeto.
 - O polo do escritório vem do campo **`destinatarios[].polo`** ("A"/"P") do DJEN, não do texto —
@@ -583,7 +752,7 @@ Regras e armadilhas (não desfazer):
 
 ## Melhorias trazidas do repositório irmão (11/09/2026)
 
-O repositório irmão é de **outro escritório** no mesmo produto white-label
+`pabadvogados-hub/alves-carneiro-advogados` é **outro escritório** no mesmo produto white-label
 (mesmo fornecedor, bootstrap de 03/09/2026). O que veio de lá foi **copiado e adaptado**, nunca
 sobreposto — e a maior parte do repositório dele **não** se aplica aqui:
 
@@ -638,9 +807,21 @@ continua sendo a **fonte da verdade do código** e o lugar de trabalhar peça.
 
 | Rotina | Horário | Unit systemd | Grava? |
 |---|---|---|---|
-| Intimações (POP-CJ-003) | seg–sex 08:00 | `maldonado-intimacoes.timer` | **Não** — simulação é o padrão |
-| KPI de êxito (competência inteira) | seg–sex 08:20 | `maldonado-kpi.timer` | Nunca (somente leitura) |
+| **Rodada da Controladoria** — intimações (POP-CJ-003) + despachos (POP-CJ-DESP-001) + custas (POP-CJ-006) | seg–sex 08:00 | `maldonado-intimacoes.timer` → `deploy/controladoria_diaria.sh` | Intimações em **simulação**; despachos gravam a planilha; custas só relatório |
+| KPI de êxito (competência inteira) | seg–sex 08:20 | `maldonado-kpi.timer` → `deploy/kpi_diario.sh` | Nunca (somente leitura) |
 | Saúde (`saude.sh`) | sob demanda | — | Nunca |
+
+**Corrigido em 30/09/2026:** o unit apontava para `deploy/vps/rotina_intimacoes.sh` (escrito em
+11/09, só intimações). A rodada do escritório passou a ser `deploy/controladoria_diaria.sh` em
+21/09, com despachos e custas — subir sem esse conserto faria a VPS rodar versão atrasada e
+deixar as duas planilhas de fora. O `rotina_intimacoes.sh` **não foi apagado**: fica como caminho
+de emergência para rodar só as intimações. O `saude.sh` confere o log do script certo.
+
+**Plugin da Hostinger instalado em 30/09/2026** (`hostinger@claude-plugins-official`, v1.2.0,
+escopo de usuário) mais os servidores MCP por serviço (`hostinger-vps`, `hostinger-dns`, ...).
+Com eles a VPS pode ser **criada daqui**, sem passar pelo hPanel, e o IP entra no `.env` sem
+digitação. Servidor MCP adicionado no meio de uma sessão **não** aparece nela: reiniciar o Claude
+Code para as ferramentas carregarem.
 
 ```
 bash deploy/vps/subir.sh --conferir     # no Mac: confere o que falta. NAO precisa da VPS existir
@@ -688,6 +869,139 @@ Passo a passo completo em `deploy/vps/README.md`. Regras e armadilhas:
 - **O que a VPS destrava depois:** o receptor de webhook do Sync (`sync_integration.py` já valida
   o HMAC, faltava URL pública). Levaria a intimação de rodada das 08:00 para tempo real — só
   depois de a rotina agendada estar provada, e exige decidir domínio e TLS.
+
+## Jurisprudência no DJEN — busca por tema, todos os tribunais (17/09/2026)
+
+Pedido da Dra. Juliana: jurisprudência na hora para a peça, **sem login no JusBrasil e sem
+navegador aberto** (roda na VPS). O DJEN publica o teor integral de decisão, sentença e acórdão
+de todos os tribunais que o usam, **inclusive o STJ**, e a API aceita `texto`. As APIs próprias dos
+tribunais (levantamento do Manus, pasta no Drive) não servem: são de transparência, estatística ou
+MNI com convênio; a do TJRO é de atermação; o Datajud não traz ementa.
+
+```
+python OPERACIONAL/main.py jurisprudencia "Súmula 298"                                  # todos, 3 meses
+python OPERACIONAL/main.py jurisprudencia "Súmula 298" --tribunal TJRO --meses 12 --md   # _trabalho/jurisprudencia/
+python OPERACIONAL/main.py jurisprudencia "Súmula 298" --tambem "frustração de safra" --tipo acordao --so-ementa
+python OPERACIONAL/jurisprudencia.py --autoteste
+```
+
+Tipos (`--tipo`), na régua do KPI mas com sentença e acórdão separados: `liminar` (tutela de 1º
+grau, inclusive efeito suspensivo a embargos à execução), `tutela-recursal`, `sentenca`, `acordao`,
+`monocratica` (relator que resolve o recurso: nego provimento/seguimento, não admito). Embargos
+de declaração ficam fora. Primeira carga, TJRO "Súmula 298" em 12 meses: 1.449 publicações →
+1.023 julgados (170 liminares, 76 tutelas recursais, 308 sentenças, 250 acórdãos, 217 monocráticas).
+
+Regras e armadilhas (não desfazer):
+- **A API casa palavras soltas, não a frase**, e não faz E entre frases ("Súmula 298 frustração
+  de safra" dá 0). A frase e o `--tambem` são conferidos no texto; para a API vai só a frase que
+  o DJEN conta menos vezes (`termo_mais_seletivo`).
+- **Uma consulta por mês.** A API devolve do mais recente para o mais antigo; com um limite só,
+  o começo do período sumia sem aviso (a 1ª versão cobriu fev–set achando que era o ano). Mês que
+  bate no limite sai como **período incompleto** na tela e no relatório.
+- **Três origens de ementa, e só a própria vira citação.** Acórdão (TJRO: `DECISÃO: ... Ementa:`)
+  → própria. Decisão do STJ que transcreve o "acórdão assim ementado" → é do TJ de origem, **nunca
+  citar como STJ**. Ementa no corpo com referência entre parênteses → precedente citado, pista.
+- **Resultado só do dispositivo** (`kpi_exito.extrair_dispositivo`); quando o extrator devolve
+  uma "ementa" que não é do ato, lê-se o fecho (a ementa era de precedente citado na liminar).
+- **Grau pela classe**, não por "desembargador" no início (sentença que cita precedente virava 2º
+  grau); e o DJEN às vezes publica acórdão com a classe de origem.
+- **"Favorável ao produtor" é leitura automática**: verbo do dispositivo × quem pediu (banco ou
+  não). Na execução quem pede é o **executado** — sem isso, exceção rejeitada saía favorável.
+- Magistrado pelo `vault_obsidian` (gabinete no DJEN → relator no cabeçalho → assinatura **no fim**
+  do ato; nunca o corpo, onde estão os relatores dos precedentes citados).
+- TRT/TST/TRE ficam fora por padrão ("Súmula 298" do TST é outra coisa). CPF/CNPJ mascarados.
+- Somente leitura; saída em `_trabalho/jurisprudencia/` (gitignored, tem nome de parte). Citação
+  continua exigindo conferência do inteiro teor no tribunal, mesmo guard-rail da `jurisprudencia-rural`.
+
+### Base de julgados e perfil por órgão — `base` (17/09/2026)
+
+A busca acima vira **base local**, **perfil decisório** e **ementário** no vault. Decisões da Dra.
+Juliana: TJRO primeiro, depois o tribunal com mais processos no ADVBOX (**TRF1**: 148, 99 ativos,
+contra TJMT 78 e TJPR 65); **2º grau por gabinete** e **1º grau por vara, informando os juízes**.
+
+**Jurimetria não se mistura com as métricas do escritório** (17/09/2026). Fica em pasta própria,
+`BASE_CONHECIMENTO/07 - JURIMETRIA/` (`ORGAOS/<TRIB>/`, `EMENTARIO/<TRIB>/`, `_PAINEL-<TRIB>`,
+`_EMENTARIO-<TRIB>`), **nunca** em `01 - MAGISTRADOS` (que tem o bloco do KPI dos nossos casos), e
+**não roda junto com o KPI** nem na VPS. Cada nota abre com esse aviso.
+
+```
+python OPERACIONAL/main.py base coletar             # TJRO desde 09/2024; incremental (mês fechado não recoleta)
+python OPERACIONAL/main.py base status
+python OPERACIONAL/main.py base perfil              # simula
+python OPERACIONAL/main.py base perfil --gravar     # grava no vault (pede s/N)
+python OPERACIONAL/main.py base coletar --tribunal TRF1 && python OPERACIONAL/main.py base perfil --tribunal TRF1
+python OPERACIONAL/base_julgados.py --autoteste
+```
+
+- Base em `_trabalho/jurisprudencia/base_julgados.sqlite` (gitignored). Termos: crédito rural, cédula
+  rural, alongamento, Súmula 298, descaracterização da mora. **"prorrogação" fica fora** (1.329/mês
+  no TJRO, quase tudo prazo). O ato só entra no perfil com marca real do tema no texto.
+- **Começa em set/2024** porque antes disso o DJEN quase não tem o TJRO ("Súmula 298": 2 em
+  set/2023, 26 em set/2024, 134 em ago/2026). Perfil de período antigo é amostra do DJEN, não do tribunal.
+- **Análise versionada** (`VERSAO_ANALISE`): mudou regra do `jurisprudencia.py`, sobe a versão e a
+  base é relida sem coletar de novo.
+- A automação só é dona do bloco `<!-- inicio:jurimetria -->` de cada nota; "Leitura humana do perfil"
+  e "Nota de uso" ficam fora dele e nunca são tocadas. O bloco é **reconstruído** da base a cada rodada.
+- **Ementário:** uma nota por acórdão com ementa própria (TJRO: 839), nome `TRIB AAAA-MM-DD SIGLA
+  processo`, com sufixo `(2)` quando o mesmo processo tem dois acórdãos no mesmo dia (sem isso um
+  sobrescrevia o outro). Frontmatter com tese, órgão, relator e resultado para consulta no Obsidian.
+- **TRF1 abrange 13 estados:** 2º grau entra inteiro (gabinete no formato `Gab. 15 - DESEMBARGADOR
+  FEDERAL ...`), 1º grau só varas de Rondônia (`FILTRO_1O_GRAU`) — no ADVBOX são 105 processos na SJRO,
+  15 nas subseções de RO, 21 no TRF1 e só 5 de outros estados.
+- Taxa favorável ao produtor = (favorável + 0,5 × parcial) ÷ atos com lado lido; **abaixo de 10 atos
+  sai "amostra insuficiente"**. "Termos presentes nas desfavoráveis" sai sempre ao lado da frequência
+  nas favoráveis: é indício, não motivo lido.
+- Acórdão publicado **sem gabinete** no `nomeOrgao` não é atribuído por nome lido no texto: entra na
+  contagem "sem órgão atribuível" do painel `_PAINEL-JURIMETRIA-TJRO`.
+- **Conferido por amostra antes de ir ao vault** (3 sorteios de 30 atos, 17/09/2026): resultado e
+  lado corretos em ~88% na 2ª e ~95% na 3ª. Cada erro virou regra: fronteira de palavra na marca de
+  banco ("s.advogado" casava "s.a"); tema tem de estar no **objeto** do ato, não citado de passagem
+  (INSS e promessa de compra e venda com "cédula rural" como prova); admissibilidade de REsp da
+  Vice-Presidência fora do perfil de gabinete; gratuidade/custas fora (objeto acessório); parte só com
+  **iniciais** vira "a conferir"; na busca e apreensão o autor é o credor; dispositivo que atravessa
+  precedente citado é lido depois da referência; mesmo juiz com grafias diferentes é agrupado.
+  Mudou regra? Nova amostra antes de gravar de novo.
+
+### Uso estratégico na peça — `jurimetria` (17/09/2026)
+
+Pedido da Dra. Juliana: a base não é só consulta, é **insumo da peça**. Mandamental em Ariquemes traz
+o que a vara de Ariquemes já decidiu, precedente do TJRO na tese e a inicial já pensada para o STJ.
+
+```
+python OPERACIONAL/main.py jurimetria --tese alongamento --comarca Ariquemes --md
+python OPERACIONAL/main.py jurimetria --tese mora --processo 7001234-56.2026.8.22.0002   # comarca pelo código de origem do CNJ
+python OPERACIONAL/jurimetria_estrategia.py --autoteste
+```
+
+- Skill `jurimetria-estrategica` diz como cada seção entra na peça; os agentes `maldonado-divida-rural`
+  (pergunta 16 do Bloco 4) e `maldonado-jurimetria` (passos 3 e 4) rodam o briefing antes de redigir/estimar.
+- **Sinal de derrota vira prova, não argumento**, e é ordenado pela diferença entre a frequência nas
+  derrotas e nas vitórias (termo que aparece igual nas duas não diz nada).
+- **Óbices do STJ contados no texto integral** (Súmula 7 vem na fundamentação, não no dispositivo).
+- **Perfil de juiz nunca entra na peça**; não escolhe juiz; precedente só com inteiro teor conferido.
+- **Foco: alongamento e descaracterização da mora** (Dra. Juliana). Ato que trata das duas conta nas duas
+  (`teses`, lista); antes ficava "tese não identificada" e sumia das duas.
+- **STJ separado por quem recorreu.** A maioria dos REsp é do banco: taxa única media o banco perdendo, não
+  a chance do produtor (alongamento: produtor recorrente 10%, banco recorrente 82%). Óbices e "REsp do
+  produtor que deram certo" saem só do produtor recorrente. Óbices contados no texto integral: Súmula 7
+  aparece em 84% das derrotas do produtor em alongamento.
+- Armadilhas da carga de TRF1/STJ (17/09/2026, não desfazer): o STJ rotula decisão monocrática como
+  "DESPACHO / DECISÃO" (7.895 saíam como despacho); monocrática do STJ transcreve "por unanimidade" do
+  acórdão recorrido (não é acórdão); "descaracterização da mora" sozinha trazia financiamento de veículo
+  (só conta com marca de crédito rural); TRF1 escreve "POLO ATIVO:"; IBAMA/União/INSS são parte não
+  produtora; ação previdenciária com "aptidão ao Pronaf" como prova fica fora.
+- A tese é marcada pelo texto (ementa, dispositivo ou objeto): ato que só menciona MCR/Súmula 298 também
+  conta. O briefing avisa; a lista de favoráveis tem de ser aberta antes de usar.
+- **Ementa do STJ só de "EMENTA / ACÓRDÃO"** (18/09/2026). A decisão monocrática do STJ transcreve a ementa do
+  TJ de origem ("contra acórdão do TJSP cuja ementa guarda os seguintes termos"): 537 ementas de TJ entraram no
+  ementário como se fossem do STJ e foram retiradas para `.trash/07 - JURIMETRIA (limpeza 18-09-2026)/`. O STJ
+  entra no briefing (resultado, quem recorreu, óbices), não no ementário. Notas que saem da base vão para a
+  lixeira do vault, e só se a parte humana estiver intacta.
+- **Cobertura em 18/09/2026:** TJRO (86 órgãos, 708 ementas), TRF1 (48 órgãos: gabinetes + varas de RO, 30
+  ementas, quase todas de execução fiscal de crédito rural: o acórdão de alongamento/mora do TRF1 chega ao DJEN
+  sem ementa no texto), STJ (1.638 atos, só no briefing). Ementa de ED não entra (acórdão embargado transcrito,
+  "cuja ementa segue abaixo transcrita"). `base perfil --gravar` move para a lixeira do vault a nota que saiu
+  da base, se a parte humana estiver intacta. Rodar com `.venv/bin/python`: o `python3` do sistema não tem as dependências.
 
 ## Squad Jurimetria (BASE_CONHECIMENTO) — "Cérebro" do escritório
 
@@ -871,7 +1185,7 @@ Regras:
 - `criar_estrutura_cliente()` e' idempotente (reaproveita o que ja existe), mas **nunca roda sem
   confirmacao** — o `--criar` mostra o que sera criado e pergunta "s/N". Enviar arquivo tambem
   pede confirmacao.
-- Nome de cliente e' comparado sem acento/caixa; apostrofo no nome (ex.: D'SOBRENOME) e' escapado antes
+- Nome de cliente e' comparado sem acento/caixa; apostrofo no nome (D'ALMEIDA) e' escapado antes
   de ir pra query.
 
 ## ADVBOX API
@@ -970,32 +1284,65 @@ Guard-rails (não desfazer):
 - `autos.md` é **o espelho do Sync, não certidão dos autos** — mesmo guard-rail do OCR do
   `BASE_CONHECIMENTO`: serve para localizar a passagem; citação em peça se confere contra os autos.
 
-**Status em 11/09/2026: o Sync NÃO foi contratado.** A integração está escrita, testada e
-inerte — não existe conta, não existe chave, nada chama a API. Com `SYNC_API_TOKEN` vazio o
-comportamento do sistema é idêntico ao de antes: a triagem captura pelo DJEN, e a rodada
-agendada das 08:00 (`rotina_diaria.py`, que tem captura DJEN própria) nem passa por este
-código. Nenhuma dependência nova foi adicionada.
+**Status em 21/09/2026: Sync ATIVO, somente leitura.** Conta "Renan Maldonado" (tenant 165),
+chave no `config/.env` do Mac (a VPS ainda não tem: copiar à mão, como toda credencial).
+`SYNC_PERMITIR_ESCRITA` segue vazio. O que a conta tem hoje (`main.py sync`):
 
-Se e quando o escritório contratar, a ativação é: gerar a chave no painel → `SYNC_API_TOKEN`
-no `.env` → `main.py sync` (diagnóstico) → `main.py sync inspecionar` (calibrar o adaptador
-contra o payload real, porque o Swagger não tipa as respostas). Só o webhook pede mais: URL
-pública HTTPS, que o `launchd` no Mac da Dra. Juliana não tem.
+- **1 monitor, OAB RO5769.** A **OAB 13021/RO** (Dr. Bruno Vinícius), que o DJEN monitora, **não
+  tem monitor** no Sync. Criar monitor consome cota do plano: decisão do escritório.
+- **Ativação em 21/09/2026 (`main.py sync ativar --todos`, a pedido da Dra. Juliana):** os 2.688
+  descobertos pela OAB foram enviados — 1.945 ativados nas vagas do plano Escritório (teto 2.000,
+  com os 528 ativos no ADVBOX na frente) e **743 aguardando pagamento** da fatura avulsa nº 187
+  (R$ 111,45, vence 28/09/2026). Processo não ativado não gera intimação pelo Sync.
+- **Importação dos ativos do ADVBOX (`main.py sync importar-advbox`, 21/09/2026):** 363 processos
+  ativos no ADVBOX que a OAB RO5769 não enxergava foram importados (monitor 331, tipo
+  `importacao`); 116 ativados nas vagas e **245 aguardando a fatura nº 188** (R$ 36,75, vence
+  28/09/2026). A importação é assíncrona: o comando espera o lote concluir antes de ativar.
+  Ficam de fora os ativos do ADVBOX **sem número CNJ válido** no cadastro (~211). Monitor da OAB
+  13021/RO (Dr. Bruno Vinícius): **não criar** — decisão da Dra. Juliana, 21/09/2026.
+- Antes da ativação eram 55 acompanhados.
+- **O Sync desliga sozinho o processo baixado no tribunal** (`monitorado: false` no detalhe; some de
+  `GET /v1/processos`). Na leitura inicial a carteira caiu de 1.960 para 1.281 com metade lida:
+  a carteira em andamento tende a ~1.000, dentro do teto de 2.000, sem excedente a partir do
+  ciclo de 16/10. Regra da Dra. Juliana (21/09/2026): **no Sync, só processo em andamento**. Por
+  isso a fatura 187 (743, quase todos arquivados no ADVBOX) não é para pagar; a 188 (ativos), sim.
+  `main.py sync desligar-arquivados` (simula; `--executar` grava) tira o que está arquivado no
+  ADVBOX e ainda ficou ligado; ativo no ADVBOX × baixado no tribunal sobe como divergência.
+- **Fechamento de 21/09/2026:** faturas 187 e 188 **canceladas** pela Dra. Juliana. Os 230 ativos do
+  ADVBOX que estavam presos na 188 foram ativados dentro das vagas (`sync ativar --monitor 331
+  --so-ativos`, sem custo) e os 6 arquivados no ADVBOX foram desligados. Carteira no Sync: ~1.290
+  processos em andamento, sem excedente. Mesmo assim, em 20–21/09 o Sync trouxe 16 dos 17
+  processos com publicação no DJEN (o que faltou, 0000028-96.2026.8.22.0024, está na carteira
+  como `baixado`). Por isso o default da triagem não mudou.
+- **Credencial do Dr. Renan** (certificado A1, válido até 20/08/2027, com 2FA) cadastrada e
+  com saúde "ok": é ela que destrava documento de processo que o DJEN não publica.
+
+Calibragem contra o payload real (21/09/2026, não desfazer):
+- `GET /v1/monitores` devolve `{"monitores": [...]}` (e `/credenciais`, `{"credenciais": [...]}`):
+  sem essas chaves em `_CHAVES_LISTA`, o diagnóstico dizia "0 monitores" com a OAB ativa.
+- **A intimação do Sync não traz parte nem polo** (nem na lista, nem no detalhe) — só o cadastro
+  do processo tem `polo_ativo`/`polo_passivo`, em texto. `polo_indisponivel` agora sobe sempre
+  que não houver polo lido (antes só subia se viessem partes sem polo, e ficava `False`).
+- O detalhe da intimação traz a **"costura"**: todas as hipóteses de prazo do ato (ex.: ED 5 dias
+  + recurso principal), com base legal. Continua sendo insumo: quem fecha o recurso é o cotejo.
+- O webhook ainda pede URL pública HTTPS (a VPS destrava) e `SYNC_WEBHOOK_SECRET`.
 
 ## Padrões de peça
 - Toda peça sai no timbrado do escritório via **skill `timbrado`**
   (`.claude/skills/timbrado/SKILL.md`), que carrega `DOCS_MODELOS/timbrado_modelo.docx` — faixa
-  2026 (extraída de peça protocolada em 08/09/2026), margens esq 2,54 / dir 2,44 / sup 5,33 /
+  2026 (extraída de peça protocolada em 08/09/2026), margens esq 2,54 / dir 2,44 / sup 7,37 (5,33 até 15/09/2026) /
   inf 2,5 cm, Arial Narrow 12 pt, justificado, entrelinha 1,5. **Nunca** montar peça a partir de
   arquivo "timbrado" solto do Drive: há 44 deles e quase todos estão obsoletos (o de 2024 ainda
   lista advogado que saiu do escritório).
 - **O quadro de advogados da faixa é dado, não imagem** (`config/equipe.py` →
-  `ADVOGADOS_TIMBRADO`): 10 nomes desde 15/09/2026, com a entrada da Dra. Taynara, da Dra.
-  Heloísa e do Dr. Agenor (**OAB/PE 62.751** — é de Pernambuco, não de Rondônia). Incluir ou
+  `ADVOGADOS_TIMBRADO`): 11 nomes desde 16/09/2026, com a entrada da Dra. Taynara, da Dra.
+  Heloísa, do Dr. Agenor (**OAB/PE 62.751** — é de Pernambuco, não de Rondônia) e da Dra. Ana
+  Sheila (OAB/RO 16.126). Incluir ou
   tirar advogado é editar a lista e rodar `python OPERACIONAL/gerar_timbrado.py`, seguido dos
   dois geradores de modelo (`gerar_modelo_declaratoria.py`, `gerar_modelo_alongamento.py`), que
-  embutem o timbrado. O `.docx` é artefato: não editar à mão. Quem manda na altura da faixa é a
-  logo (3,44 cm), não os nomes — com a entrelinha atual cabem 10 (3,39 cm), e o 11º exige duas
-  colunas; `gerar_timbrado.py` falha com erro em vez de estourar em silêncio, porque o estouro
+  embutem o timbrado. O `.docx` é artefato: não editar à mão. Quadro em uma coluna, Dr. Renan primeiro
+  e demais em ordem alfabética, Arial 9 pt preto; o cabeçalho cresceu (margem superior 7,37 cm),
+  reservada para 12 nomes; `gerar_timbrado.py` falha com erro em vez de estourar em silêncio, porque o estouro
   empurraria o corpo de toda peça para baixo e só apareceria no protocolo.
 - Assinatura padrão: Dr. Renan Gomes Maldonado de Jesus - OAB/RO 5769 - Porto Velho/RO.
 - **Títulos em negrito**, caixa alta, na margem esquerda, numerados em romano.

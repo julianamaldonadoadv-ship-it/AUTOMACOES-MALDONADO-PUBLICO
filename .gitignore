@@ -6,6 +6,8 @@ config/token.json
 config/token*.json
 config/*.bak
 DOCS_MODELOS/timbrado_modelo.docx
+DOCS_MODELOS/TIMBRADO MALDONADO ADVOGADOS 2026.docx
+DOCS_MODELOS/TIMBRADO MALDONADO ADVOGADOS 2026.dotx
 
 # Python
 __pycache__/

@@ -16,6 +16,7 @@
     cd MALDONADO_ADVOGADOS && python OPERACIONAL/main.py processos
     cd MALDONADO_ADVOGADOS && python OPERACIONAL/main.py prazos
     cd MALDONADO_ADVOGADOS && python OPERACIONAL/main.py advbox        # diagnostico da integracao
+    cd MALDONADO_ADVOGADOS && python OPERACIONAL/main.py jurisprudencia "Sumula 298" --md
     cd MALDONADO_ADVOGADOS && python OPERACIONAL/main.py triagem --dias 7 --fonte sync
     cd MALDONADO_ADVOGADOS && python OPERACIONAL/main.py sync          # diagnostico do SYNC
     cd MALDONADO_ADVOGADOS && python OPERACIONAL/main.py sync intimacoes --dias 1
@@ -57,6 +58,7 @@ import anexos_inicial as anexos
 import roteamento_controller as roteamento
 import rotina_diaria
 import despachos_controle
+import custas_protocolo as custas
 
 try:
     import equipe
@@ -215,7 +217,7 @@ def _deduplicar_intimacoes(resumos):
 
     O casamento e' CONSERVADOR de proposito. Agrupa por (processo, dia) e so
     funde quando a abertura do texto coincide - porque o mesmo processo pode ter
-    dois atos DIFERENTES no mesmo dia (foi o caso de uma cliente, que teve
+    dois atos DIFERENTES no mesmo dia (foi o caso da Sra. Cliente H, que teve
     "defiro o pedido" e "defiro a dilacao de prazo" na mesma semana). Na duvida
     MANTEM OS DOIS e avisa: duplicata repetida na triagem e' incomodo visivel;
     intimacao fundida por engano e' prazo perdido em silencio.
@@ -834,13 +836,50 @@ def cmd_drive(args):
             print(f'\n  AVISO: sem numero de processo — a pasta vai como "{g.SEM_PROCESSO}".')
             print('         Renomeie quando sair a distribuicao.')
 
+        # Regra da GJ (18/09/2026): a peca sai com EDICAO liberada para o advogado
+        # responsavel, senao cada devolutiva vira pedido de acesso.
+        ids_adv = list(args.advogado_id or [])
+        if not ids_adv and args.processo:
+            achados = advbox.buscar_processo(numero_processo=args.processo)
+            if achados and achados[0].get('responsible_id'):
+                ids_adv = [achados[0]['responsible_id']]
+        editores = [e for e in (advbox.email_usuario(i) for i in ids_adv) if e]
+        if editores:
+            print(f"  Edicao liberada para: {', '.join(editores)}")
+        else:
+            print('  AVISO: nenhum advogado para liberar edicao (use --advogado-id).')
+
+        # Trava de custas (POP-CJ-006): arquivar a peca e' o ultimo ponto em que
+        # a automacao toca nela antes de a Controladoria protocolar. Aqui a trava
+        # so AVISA — quem bloqueia e' `custas conferir`, rodado antes do protocolo.
+        try:
+            leitura = custas.analisar_peca(custas.ler_peca(args.arquivo))
+            if leitura['tipo'] != 'outra':
+                sit_custas = None
+                if args.processo:
+                    achados_c = advbox.buscar_processo(numero_processo=args.processo) or []
+                    if achados_c:
+                        sit_custas = custas.situacao_advbox(achados_c[0]['id'])
+                v_custas = custas.avaliar(peca=leitura, advbox_situacao=sit_custas)
+                bloqueiam = [x for x in v_custas['pendencias'] if x['bloqueia']]
+                if bloqueiam:
+                    print(f'\n  ATENCAO — TRAVA DE CUSTAS ({len(bloqueiam)} pendencia(s)):')
+                    for x in bloqueiam:
+                        print(f"    - {x['o_que']} ({x['quem']})")
+                    print('  Confira antes de mandar para protocolo:')
+                    print(f'    python OPERACIONAL/main.py custas conferir "{args.arquivo}"'
+                          f' --cliente "{args.cliente}"'
+                          + (f' --processo {args.processo}' if args.processo else ''))
+        except Exception as e:
+            print(f'\n  AVISO: a trava de custas nao conseguiu ler a peca ({e}).')
+
         if input('\n  Confirma o arquivamento? (s/N): ').strip().lower() != 's':
             print('  Cancelado.')
             return
 
         enviado, pasta_id = g.arquivar_peca(
             drive, args.arquivo, args.cliente, args.processo,
-            converter_google_docs=bool(args.converter))
+            converter_google_docs=bool(args.converter), editores=editores)
         print(f"\n  Arquivado: {enviado['name']}")
         print(f"  Pasta: {g.link_pasta(pasta_id)}")
         print(f"  {enviado.get('webViewLink', '')}")
@@ -1033,6 +1072,223 @@ def cmd_anexos(args):
 # ============================================================
 # COMANDO: apontamentos - Base de apontamentos da Gerencia Juridica
 # ============================================================
+
+# ============================================================
+# COMANDO: custas - trava antes do protocolo (POP-CJ-006)
+# ============================================================
+
+def _imprimir_veredito(v, plano=None):
+    cor = {custas.STATUS_LIBERADO: '[OK]', custas.STATUS_BLOQUEADO: '[X]',
+           custas.STATUS_CONFERIR: '[?]', custas.STATUS_NAO_SE_APLICA: '[-]'}
+    print(f"\n  VEREDITO: {cor.get(v['status'], '')} {v['status']}"
+          + (f"  (via {v['via']})" if v.get('via') else ''))
+    for obs in v['observacoes']:
+        print(f'    - {obs}')
+    if v['pendencias']:
+        print(f"\n  PENDENCIAS ({len(v['pendencias'])})")
+        for n, p in enumerate(v['pendencias'], 1):
+            marca = 'BLOQUEIA' if p['bloqueia'] else 'ressalva'
+            print(f"\n   {n}. [{marca}] {p['o_que']}")
+            print(f"      por que: {p['por_que']}")
+            print(f"      quem resolve: {p['quem']}")
+            if p['tarefa']:
+                print(f"      tarefa sugerida: {p['tarefa']}")
+    if plano:
+        print(f'\n  TAREFAS QUE A TRAVA ABRIRIA ({len(plano)})')
+        for t in plano:
+            print(f"    - {t['tipo']} -> {t['guests']} (lanca {t['from_id']})")
+
+
+def _confirmar_e_criar(plano, criar):
+    if not plano:
+        return
+    if not criar:
+        print('\n  (Nada foi gravado. Para abrir essas tarefas no ADVBOX: --criar-tarefa)')
+        return
+    if input('\n  Criar essas tarefas no ADVBOX? (s/N): ').strip().lower() != 's':
+        print('  Cancelado — nada foi gravado.')
+        return
+    for r in custas.criar_tarefas(plano, confirmado=True):
+        print(f"    {'[OK]' if r['ok'] else '[FALHA]'} {r['tarefa']}"
+              + (f" — {r.get('erro')}" if not r['ok'] else ''))
+
+
+def cmd_custas(args):
+    if args.acao == 'conferir':
+        print('=' * 80)
+        print('  TRAVA DE CUSTAS — CONFERENCIA ANTES DO PROTOCOLO')
+        print('=' * 80)
+
+        peca = None
+        if args.arquivo:
+            peca = custas.analisar_peca(custas.ler_peca(args.arquivo))
+            print(f'\n  Peca: {os.path.basename(args.arquivo)}')
+            print(f"  Classificacao: {peca['tipo']}"
+                  f" (indicios: {', '.join(peca['classificacao']['indicios'][:3]) or '-'})")
+            print(f"  Valor da causa: R$ {peca['valor_causa'] or '(nao localizado)'}")
+            print(f"  Pede gratuidade: {'SIM' if peca['gratuidade'] else 'nao'}"
+                  f" | diferimento: {'SIM' if peca['diferimento'] else 'nao'}"
+                  f" | anuncia guia no rol: {'SIM' if peca['anuncia_guia'] else 'nao'}")
+
+        lawsuit, sit = None, None
+        if args.processo:
+            achados = advbox.buscar_processo(numero_processo=args.processo) or []
+            lawsuit = achados[0] if achados else None
+            if not lawsuit:
+                print(f'\n  AVISO: processo {args.processo} nao encontrado no ADVBOX '
+                      '(sem cadastro nao da para conferir guia nem abrir tarefa).')
+            else:
+                sit = custas.situacao_advbox(lawsuit['id'])
+                print(f"\n  Processo: {lawsuit['process_number']} — "
+                      f"{lawsuit['customers'][0]['name'] if lawsuit.get('customers') else ''}")
+                print(f"  Responsavel: {lawsuit.get('responsible')}")
+                print('  No ADVBOX: '
+                      f"guia={'SIM' if sit['guia'] else 'nao'} | "
+                      f"comprovante={'SIM' if sit['comprovante'] else 'nao'} | "
+                      f"CS acionado={'SIM' if sit['cs_acionado'] else 'nao'} | "
+                      f"emenda={'SIM' if sit['emenda'] else 'nao'}")
+                if sit['cobertura_parcial']:
+                    print('  (o /history devolve ~20 itens e nao pagina: e piso, nao total)')
+
+        arquivos, rol, pasta_ok = None, None, True
+        if args.cliente:
+            g, drive = _drive()
+            pasta, itens = anexos.inventariar_cliente(g, drive, args.cliente)
+            if not pasta:
+                print(f"\n  AVISO: cliente '{args.cliente}' nao encontrado na ZEUS.")
+            else:
+                arquivos = [a['nome'] for a in itens]
+                pasta_ok = custas.pasta_confere(pasta['name'], args.cliente)
+                print(f"\n  Pasta do cliente: {pasta['name']} ({len(arquivos)} arquivo(s))")
+                if not pasta_ok:
+                    print('  AVISO: esse nome nao parece a pasta de DOCUMENTOS do cliente '
+                          '(a busca do Drive cai na pasta de pecas quando o cliente nao esta')
+                    print('  sob a letra esperada em 03. CLIENTES). O que depende da pasta '
+                          'vira ressalva, nao bloqueio.')
+                if args.acao_peca:
+                    rol = anexos.conferir_rol(itens, args.acao_peca)
+
+        veredito = custas.avaliar(peca=peca, arquivos_pasta=arquivos,
+                                  advbox_situacao=sit, rol_tese=rol,
+                                  motivo_excecao=args.apesar_de,
+                                  pasta_confiavel=pasta_ok)
+        plano = custas.plano_tarefas(veredito, lawsuit) if lawsuit else []
+        _imprimir_veredito(veredito, plano)
+
+        if veredito['status'] == custas.STATUS_BLOQUEADO:
+            print('\n  NAO PROTOCOLAR ate resolver as pendencias que bloqueiam.')
+            print('  Havendo prazo fatal hoje, a liberacao e humana e fica registrada:')
+            print('    --apesar-de "motivo, quem autorizou"')
+        _confirmar_e_criar(plano, args.criar_tarefa)
+        if veredito['status'] == custas.STATUS_BLOQUEADO:
+            sys.exit(1)
+        return
+
+    if args.acao == 'fila':
+        print('=' * 80)
+        print('  TRAVA DE CUSTAS — FILA DE PROTOCOLO')
+        print('=' * 80)
+        print(f'\n  O que a Controladoria vai protocolar nos proximos {args.dias} dia(s).')
+        registros = custas.conferir_fila(dias=int(args.dias))
+        if not registros:
+            print('\n  Fila vazia no periodo.')
+            return
+
+        ordem = {'SEM REGISTRO': 0, 'EM ABERTO': 1, 'SEM CADASTRO': 2,
+                 'A CONFERIR': 3, 'OK': 4, 'FORA DA TRAVA': 5}
+        registros.sort(key=lambda r: (ordem.get(r['status'], 9), r['tarefa'].get('date') or ''))
+        plano_total, contagem = [], {}
+        for r in registros:
+            contagem[r['status']] = contagem.get(r['status'], 0) + 1
+            if r['status'] in ('OK', 'FORA DA TRAVA') and not args.tudo:
+                continue
+            marca = '[X]' if r['status'] in ('SEM REGISTRO', 'EM ABERTO') else '[?]'
+            data = (r['tarefa'].get('date') or '')[:10]
+            print(f"\n  {marca} {r['status']} — {r['processo'] or '(sem processo)'}"
+                  f"  | {r['fila']} em {data}")
+            print(f"      {r['rotulo'][:70] or '(tarefa sem descricao)'}"
+                  f"  [{r['natureza']}]")
+            resp = (r['lawsuit'] or {}).get('responsible')
+            cliente = ((r['lawsuit'] or {}).get('customers') or [{}])[0].get('name')
+            if resp or cliente:
+                print(f"      {cliente or '(sem cliente)'} | {resp or '(sem responsavel)'}")
+            print(f"      {r['motivo']}")
+            pend = custas.pendencia_da_fila(r)
+            if pend and r['lawsuit'].get('id'):
+                plano_total.extend(custas.plano_tarefas(
+                    {'status': custas.STATUS_BLOQUEADO, 'via': 'custas',
+                     'observacoes': [], 'pendencias': [pend]}, r['lawsuit']))
+
+        print(f"\n  {'-' * 76}")
+        print('  ' + ' | '.join(f'{k}: {v}' for k, v in sorted(contagem.items())))
+        print('  A fila e lida do ADVBOX; a peca nao vem anexada na tarefa, entao aqui')
+        print('  nao da para ver pedido de gratuidade. Item SEM REGISTRO com gratuidade')
+        print('  na peca e falso positivo — confira com: custas conferir <arquivo>')
+        if plano_total:
+            print(f'\n  TAREFAS QUE A TRAVA ABRIRIA ({len(plano_total)})')
+            for t in plano_total[:20]:
+                print(f"    - {t['tipo']} -> {t['guests']} (processo {t['lawsuit_id']})")
+        _confirmar_e_criar(plano_total, args.criar_tarefa)
+        return
+
+    if args.acao == 'auditar':
+        print('=' * 80)
+        print('  TRAVA DE CUSTAS — AUDITORIA DO QUE JA FOI PROTOCOLADO')
+        print('=' * 80)
+        print(f'\n  Iniciais cadastradas nos ultimos {args.dias} dia(s).')
+        resultado = custas.auditar(dias=int(args.dias))
+        if resultado['estourou_limite']:
+            print(f"  AVISO: {resultado['total']} processos no periodo; "
+                  f"analisei os {resultado['analisados']} mais recentes "
+                  '(o /history custa 1 GET por processo, e o teto e 30/min).')
+        if not resultado['itens']:
+            print('\n  Nenhuma inicial protocolada no periodo.')
+            return
+
+        ordem = {'PROTOCOLADO SEM CUSTAS': 0, 'SEM SINAL DE CUSTAS': 1,
+                 'CUSTAS EM ABERTO': 2, 'RESOLVIDO': 3}
+        itens = sorted(resultado['itens'], key=lambda i: ordem.get(i['status'], 9))
+        plano_total = []
+        for item in itens:
+            law = item['lawsuit']
+            cliente = law['customers'][0]['name'] if law.get('customers') else '(sem cliente)'
+            marca = '[OK]' if item['status'] == 'RESOLVIDO' else '[X]'
+            print(f"\n  {marca} {item['status']} — {law.get('process_number') or '(sem numero)'}")
+            print(f"      {cliente} | {law.get('responsible')} | "
+                  f"cadastrado ha {item['dias_desde_cadastro']} dia(s)")
+            print(f"      {item['motivo']}")
+            if item['status'] in ('SEM SINAL DE CUSTAS', 'PROTOCOLADO SEM CUSTAS'):
+                veredito = {'status': custas.STATUS_BLOQUEADO, 'via': 'custas',
+                            'observacoes': [],
+                            'pendencias': [custas._pendencia(
+                                'AUDITORIA_SEM_CUSTAS',
+                                'Inicial protocolada sem registro de custas nem de gratuidade',
+                                'Art. 321 do CPC: o juizo intima para emendar em 15 dias e, '
+                                'nao cumprido, indefere a inicial. Conferir os autos e, '
+                                'sendo o caso, recolher antes da intimacao.',
+                                'Controladoria', tarefa='RECOLHER CUSTAS')]}
+                plano_total.extend(custas.plano_tarefas(veredito, law))
+
+        pendentes = [i for i in itens if i['status'] != 'RESOLVIDO']
+        print(f"\n  {'-' * 76}")
+        print(f'  {len(itens)} inicial(is) no periodo | {len(pendentes)} com custas em aberto')
+        fora = resultado.get('fora_escopo') or []
+        if fora:
+            print(f'\n  Fora da trava ({len(fora)}) — recurso tem preparo, que e outra regua:')
+            for f in fora[:12]:
+                print(f"    - {f.get('process_number') or '(sem numero)'}: {f['_motivo_escopo']}")
+            if len(fora) > 12:
+                print(f'    ... e mais {len(fora) - 12}')
+        print('  A auditoria le o ADVBOX: peca com gratuidade pedida e sem registro de '
+              'custas aparece aqui como pendente. Conferir a peca antes de concluir.')
+        if plano_total:
+            print(f'\n  TAREFAS QUE A AUDITORIA ABRIRIA ({len(plano_total)})')
+            for t in plano_total:
+                print(f"    - {t['tipo']} -> {t['guests']} (processo {t['lawsuit_id']})")
+        _confirmar_e_criar(plano_total, args.criar_tarefa)
+        return
+
+
 
 def cmd_apontamentos(args):
     """Levanta o que a Gerencia Juridica devolve nas pecas e classifica.
@@ -1245,6 +1501,126 @@ def cmd_vault(args):
 
 
 # ============================================================
+# COMANDO: jurisprudencia - busca por tema no DJEN (todos os tribunais)
+# ============================================================
+
+def cmd_jurisprudencia(args):
+    """Pesquisa de jurisprudencia no teor publicado no DJEN. Somente leitura."""
+    import jurisprudencia as juris
+
+    tribunais = [t.strip() for t in (args.tribunal or '').split(',') if t.strip()]
+    if args.de:
+        inicio = datetime.strptime(args.de, '%Y-%m-%d').date()
+        fim = datetime.strptime(args.ate, '%Y-%m-%d').date() if args.ate else datetime.now().date()
+    else:
+        fim = datetime.now().date()
+        # Todos os tribunais numa consulta so volta muito: janela menor por padrao.
+        meses = args.meses or (12 if tribunais else 3)
+        inicio = fim - timedelta(days=30 * meses)
+    periodo = f'{inicio.strftime("%d/%m/%Y")} a {fim.strftime("%d/%m/%Y")}'
+
+    print('=' * 100)
+    print(f'  JURISPRUDENCIA NO DJEN - "{args.consulta}"')
+    print('=' * 100)
+    julgados, contagem = juris.buscar(
+        args.consulta, tribunais=tribunais, inicio=inicio.isoformat(), fim=fim.isoformat(),
+        tambem=args.tambem or (), excluir=args.excluir or (), limite=args.limite,
+        incluir_trabalhista=args.incluir_trabalhista,
+        incluir_sem_conteudo=args.incluir_sem_conteudo,
+        tipos=[t.strip() for t in (args.tipo or '').split(',') if t.strip()] or None)
+    if args.favoravel:
+        julgados = [r for r in julgados if r['produtor'] in ('favoravel', 'parcial', 'a conferir')]
+        contagem['julgados'] = len(julgados)
+    if args.so_ementa:
+        julgados = [r for r in julgados if r['ementa']]
+        contagem['julgados'] = len(julgados)
+
+    juris.imprimir(julgados, contagem, maximo=args.listar)
+    if not contagem['publicacoes']:
+        print('\n  AVISO: o DJEN voltou vazio. A API da falso-vazio; rode de novo antes de '
+              'concluir que nao ha julgado.')
+    for c in juris.salvar(julgados, contagem, args.consulta, periodo, args.tambem or (),
+                          md=args.md, js=args.json):
+        print(f'\n  Salvo: {c}')
+    print('\n  Leitura automatica: conferir o inteiro teor no tribunal antes de citar.')
+
+
+# ============================================================
+# COMANDO: base - base de julgados e perfil decisorio por orgao
+# ============================================================
+
+def cmd_base(args):
+    """Coleta do DJEN para a base local e perfil no vault. Somente leitura no DJEN."""
+    import base_julgados as base
+
+    con = base.conectar()
+    tribunal = (args.tribunal or 'TJRO').upper()
+    if args.acao == 'coletar':
+        print(f'\n  Coletando {tribunal} desde {args.desde} ({", ".join(base.TERMOS_PADRAO)})')
+        novas = base.coletar(con, tribunal=tribunal, desde=args.desde, refazer=args.refazer)
+        print(f'\n  {novas} publicacao(oes) nova(s). Analisando...')
+        n = base.analisar_pendentes(con)
+        print(f'  {n} analisada(s).')
+    if args.acao in ('coletar', 'status'):
+        st = base.status(con)
+        print('\n  BASE DE JULGADOS')
+        for trib, qtd, ini, fim in st['publicacoes']:
+            print(f'  {trib}: {qtd} publicacoes, de {ini} a {fim}')
+        print(f"  Analisadas: {st['analisadas']} | relevantes (tema rural/bancario, com resultado): "
+              f"{st['relevantes']}")
+        if st['meses_abertos']:
+            print(f"  Meses a recoletar: {len(st['meses_abertos'])} "
+                  f"({', '.join(sorted({m for _, _, m in st['meses_abertos']}))})")
+        return
+    if args.acao == 'perfil':
+        base.analisar_pendentes(con)
+        julgados = base.carregar_julgados(con, tribunal, desde=args.desde_perfil)
+        print('=' * 100)
+        print(f'  PERFIL DECISORIO - {tribunal} - {len(julgados)} atos decisorios na base')
+        print('=' * 100)
+        plano, sem_orgao = base.planejar(julgados, tribunal)
+        base.imprimir_plano(plano, sem_orgao)
+        a_escrever = [p for p in plano if p['status'] in ('criada', 'atualizada')]
+        velhas = base.obsoletas(plano, tribunal)
+        moviveis = [v for v in velhas if v[2]]
+        if velhas:
+            print(f'  Notas que sairam da base: {len(velhas)} ({len(moviveis)} vao para a lixeira do vault; '
+                  f'{len(velhas) - len(moviveis)} com texto humano ficam onde estao)')
+        if not args.gravar:
+            print(f'\n  SIMULACAO: {len(a_escrever)} nota(s) seriam gravadas. Use --gravar.')
+            return
+        if not a_escrever and not moviveis:
+            print('\n  Nada a gravar.')
+            return
+        if input(f'\n  Gravar {len(a_escrever)} nota(s) e mover {len(moviveis)} obsoleta(s) para a lixeira '
+                 f'do vault? (s/N): ').strip().lower() != 's':
+            print('  Cancelado. Nada foi gravado.')
+            return
+        import vault_obsidian
+        print(f'  {vault_obsidian.gravar(plano)} nota(s) gravada(s); '
+              f'{base.mover_para_lixeira(velhas, tribunal)} movida(s) para a lixeira.')
+
+
+# ============================================================
+# COMANDO: jurimetria - briefing estrategico para a peca
+# ============================================================
+
+def cmd_jurimetria(args):
+    """Foro + tese -> o que pesa naquele juizo, precedentes, e caminho ate o STJ. Somente leitura."""
+    import base_julgados as base
+    import jurimetria_estrategia as est
+
+    con = base.conectar()
+    texto, comarca = est.briefing(con, args.tese, tribunal=args.tribunal.upper(), comarca=args.comarca,
+                                  processo=args.processo, peca=args.peca, stj=not args.sem_stj)
+    print(texto)
+    if args.processo and not args.comarca:
+        print(f'\n  Comarca deduzida do numero do processo: {comarca or "nao encontrada na base"}')
+    if args.md:
+        print(f'\n  Salvo: {est.salvar(texto, args.tese, comarca)}')
+
+
+# ============================================================
 # COMANDO: advbox - Diagnostico da integracao
 # ============================================================
 
@@ -1290,7 +1666,8 @@ def cmd_sync(args):
     Somente leitura. As rotas de escrita do Sync (ciencia de prazo, marcar
     intimacao como tratada, criar monitor, registrar webhook) ficam atras da
     trava SYNC_PERMITIR_ESCRITA e nao sao expostas aqui de proposito - ciencia
-    e' ato da controller, nao da automacao."""
+    e' ato da controller, nao da automacao. Unica excecao: `sync ativar`
+    (ativar processo descoberto), que exige a trava E "s/N" no terminal."""
     acao = getattr(args, 'acao', None) or 'diagnostico'
 
     if acao == 'diagnostico':
@@ -1322,9 +1699,33 @@ def cmd_sync(args):
                 valor = sync._primeiro(achatado, 'valor') or '?'
                 qtd = sync._primeiro(achatado, 'processos', 'total_processos', 'qtd') or '-'
                 print(f'    [ok] {tipo}={valor}  ({qtd} processo(s))')
+                fora = sync._primeiro(achatado, 'nao_ativados')
+                if fora:
+                    # Processo descoberto pelo monitor mas nao ativado nao e'
+                    # acompanhado: intimacao dele nao chega pelo Sync.
+                    print(f'    [!] {fora} processo(s) descobertos pela OAB e NAO ativados '
+                          f'(fora do acompanhamento - ver plano/cota no painel do Sync)')
+            try:
+                prog = sync._request('GET', '/v1/processos/importacao/progresso')
+                print(f'    Processos acompanhados: {prog.get("monitorados", "?")} '
+                      f'(lidos {prog.get("lidos", "?")}, nunca lidos {prog.get("nunca_lidos", "?")})')
+            except sync.SyncError:
+                pass
         except sync.SyncError as e:
             print(f'    Falha ao listar monitores: {e}')
         _conferir_oabs_no_sync()
+        return
+
+    if acao == 'ativar':
+        _sync_ativar_descobertos(args)
+        return
+
+    if acao == 'importar-advbox':
+        _sync_importar_advbox(args)
+        return
+
+    if acao == 'desligar-arquivados':
+        _sync_desligar_arquivados(args)
         return
 
     if acao == 'inspecionar':
@@ -1400,6 +1801,236 @@ def cmd_sync(args):
             print(f"    Ativo:    {sync._primeiro(achatado, 'ativo')}")
             print(f"    Assinado: {'sim' if sync._primeiro(achatado, 'tem_secret', 'secret') else 'NAO - sem HMAC'}")
         return
+
+
+def _sync_ativar_descobertos(args):
+    """Ativa os processos que o monitor de OAB descobriu e nao ativou.
+
+    Escrita no Sync, com custo acima do teto do plano. Exige
+    SYNC_PERMITIR_ESCRITA=1 no config/.env E "s" no terminal. A ordem garante
+    que os processos ATIVOS no ADVBOX entrem nas vagas do plano antes de
+    qualquer outro: primeiro ativos, depois os sem correspondencia no ADVBOX
+    (mais recentes antes), por ultimo os arquivados no ADVBOX.
+    """
+    import re
+    dig = lambda x: re.sub(r'\D', '', x or '')
+    monitores = [m for m in sync.listar_monitores() if m.get('id')]
+    if args.monitor:
+        monitores = [m for m in monitores if str(m['id']) == str(args.monitor)]
+    if not monitores:
+        print('  Nenhum monitor encontrado.')
+        return
+
+    print('  Carregando a carteira do ADVBOX para priorizar os ativos...')
+    adv = {}
+    for l in advbox.listar_processos():
+        for k in ('process_number', 'protocol_number'):
+            n = dig(l.get(k))
+            if len(n) == 20:
+                adv[n] = l
+
+    for m in monitores:
+        dados = sync.descobertos(m['id'])
+        pendentes = dados.get('processos') or []
+        cob = dados.get('cobranca') or {}
+        vagas = int(cob.get('vagas_no_plano') or 0)
+        preco = (cob.get('preco_excedente_centavos') or 0) / 100
+        print()
+        print(f'  Monitor {m["id"]} ({m.get("tipo")}={m.get("valor")}): {len(pendentes)} descoberto(s) nao ativado(s)')
+        if not pendentes:
+            continue
+
+        ativos, sem_adv, arquivados = [], [], []
+        for p in pendentes:
+            l = adv.get(p['numero'])
+            if l is None:
+                sem_adv.append(p['numero'])
+            elif roteamento.processo_arquivado(l):
+                arquivados.append(p['numero'])
+            else:
+                ativos.append(p['numero'])
+        sem_adv.sort(key=lambda n: n[9:13], reverse=True)   # ano do CNJ
+        # Regra da Dra. Juliana (21/09/2026): no Sync, so processo em andamento.
+        ordem = ativos + sem_adv if args.so_ativos else ativos + sem_adv + arquivados
+        lote = ordem if args.todos else ordem[:vagas]
+        excedente = max(0, len(lote) - vagas)
+
+        print(f'    ativos no ADVBOX: {len(ativos)} | sem ADVBOX: {len(sem_adv)} | arquivados no ADVBOX: {len(arquivados)}')
+        print(f'    vagas livres no plano: {vagas}')
+        print(f'    A ATIVAR AGORA: {len(lote)} processo(s)')
+        if excedente:
+            print(f'    [!] {excedente} acima do teto -> fatura avulsa PRE-PAGA de ~R$ {excedente * preco:.2f} '
+                  f'(R$ {preco:.2f}/processo); esses so passam a ser acompanhados depois do pagamento')
+        else:
+            print('    sem custo extra (cabe nas vagas do plano)')
+        print('    Processo ativado conta no plano do mes: desligar no mesmo mes nao estorna.')
+        if not lote:
+            continue
+        if input('\n  Confirmar a ativacao? (s/N): ').strip().lower() != 's':
+            print('  Cancelado. Nada foi ativado.')
+            continue
+
+        # 1o as vagas do plano (ativos do ADVBOX garantidos dentro), depois o excedente.
+        dentro, fora = lote[:vagas], lote[vagas:]
+        for rotulo, parte in (('dentro do plano', dentro), ('excedente', fora)):
+            if not parte:
+                continue
+            try:
+                r = sync.confirmar_selecao(m['id'], numeros=parte, confirmado=True)
+            except sync.SyncError as e:
+                print(f'  ERRO ao ativar ({rotulo}): {e}')
+                break
+            print(f'  [ok] {rotulo}: {len(parte)} enviado(s).')
+            fatura = r.get('fatura') if isinstance(r, dict) else None
+            if fatura:
+                print(f'  FATURA: {json.dumps(fatura, ensure_ascii=False)}')
+            resumo = {k: v for k, v in (r or {}).items() if not isinstance(v, (list, dict))} if isinstance(r, dict) else r
+            if resumo:
+                print(f'    resposta: {resumo}')
+
+
+def _sync_importar_advbox(args):
+    """Importa no Sync os processos ATIVOS do ADVBOX que nenhum monitor achou.
+
+    O monitor de OAB so enxerga processo em que a OAB aparece no tribunal; o que
+    esta so na OAB de outro advogado (ou sem advogado cadastrado) fica de fora.
+    Escrita com custo acima do teto: exige SYNC_PERMITIR_ESCRITA=1 E "s".
+    """
+    import re
+    dig = lambda x: re.sub(r'\D', '', x or '')
+    print('  Carregando a carteira do ADVBOX...')
+    ativos = {}
+    for l in advbox.listar_processos():
+        if roteamento.processo_arquivado(l):
+            continue
+        for k in ('process_number', 'protocol_number'):
+            n = dig(l.get(k))
+            if len(n) == 20:
+                ativos[n] = l.get(k)
+    print('  Carregando o que o Sync ja tem (carteira + descobertos)...')
+    no_sync = {dig(p.get('numero')) for p in sync._paginar('/v1/processos', rotulo='processos')}
+    for m in sync.listar_monitores():
+        if m.get('id'):
+            for p in (sync.descobertos(m['id']).get('processos') or []):
+                no_sync.add(dig(p.get('numero')))
+    faltam = sorted(n for n in ativos if n not in no_sync)
+
+    cob = (sync._request('GET', '/v1/conta/cobranca') or {})
+    proc = cob.get('processos') or {}
+    vagas = max(0, int(proc.get('limite') or 0) - int(proc.get('monitorados') or 0))
+    preco = ((cob.get('plano') or {}).get('preco_processo_excedente_centavos') or 0) / 100
+    excedente = max(0, len(faltam) - vagas)
+    print()
+    print(f'  Ativos no ADVBOX com numero CNJ: {len(ativos)} | ja no Sync: {len(ativos) - len(faltam)}')
+    print(f'  A IMPORTAR: {len(faltam)} processo(s) | vagas livres no plano: {vagas}')
+    if excedente:
+        print(f'  [!] {excedente} acima do teto -> fatura avulsa PRE-PAGA de ~R$ {excedente * preco:.2f}')
+    if not faltam:
+        return
+    if args.listar:
+        for n in faltam:
+            print(f'    {ativos[n]}')
+        return
+    if input('\n  Confirmar a importacao? (s/N): ').strip().lower() != 's':
+        print('  Cancelado. Nada foi importado.')
+        return
+
+    lote_id = f'advbox-ativos-{datetime.now():%Y%m%d}'
+    r = sync.importar_processos(faltam, lote_id=lote_id, confirmado=True)
+    resumo = {k: v for k, v in r.items() if not isinstance(v, (list, dict))} if isinstance(r, dict) else r
+    print(f'  [ok] lote {lote_id} enviado: {resumo}')
+    if isinstance(r, dict) and r.get('invalidos'):
+        print(f'  Invalidos ({len(r["invalidos"])}): {r["invalidos"][:20]}')
+
+    # O lote e' assincrono: a selecao so aparece depois de concluido (na 1a
+    # rodada, 21/09/2026, a ativacao leu a lista ainda vazia e nao ativou nada).
+    import time
+    for _ in range(40):
+        st = sync._request('GET', f'/v1/processos/importacao/{lote_id}') or {}
+        if st.get('status') in ('concluido', 'erro'):
+            break
+        time.sleep(3)
+
+    # Acima do teto o lote fica "aguardando selecao" num monitor tipo importacao.
+    for m in sync.listar_monitores():
+        if str(m.get('tipo')).lower() != 'importacao' or not m.get('id'):
+            continue
+        pend = sync.descobertos(m['id']).get('processos') or []
+        pend = [p['numero'] for p in pend if dig(p.get('numero')) in set(faltam)]
+        if not pend:
+            continue
+        r2 = sync.confirmar_selecao(m['id'], numeros=pend, confirmado=True)
+        print(f'  [ok] excedente ativado no monitor {m["id"]}: {len(pend)} enviado(s)')
+        if isinstance(r2, dict):
+            if r2.get('fatura'):
+                print(f'  FATURA: {json.dumps(r2["fatura"], ensure_ascii=False)}')
+            print(f'    resposta: { {k: v for k, v in r2.items() if not isinstance(v, (list, dict))} }')
+
+
+def _sync_desligar_arquivados(args):
+    """No Sync ficam so processos em andamento (Dra. Juliana, 21/09/2026).
+
+    Desliga o monitoramento de quem esta ARQUIVADO NO ADVBOX ou BAIXADO NO
+    TRIBUNAL (campo `baixado` do Sync). Processo ainda nao lido pelo Sync e
+    fora do ADVBOX fica ligado ate ser lido: sem leitura nao ha como saber.
+    Ativo no ADVBOX e baixado no tribunal sobe como divergencia e NAO e'
+    desligado - quem decide e' a controller.
+    Arquivado continua recebendo intimacao pelo DJEN (fonte padrao da triagem).
+    Simula por padrao; --executar exige SYNC_PERMITIR_ESCRITA=1 e "s".
+    """
+    import re
+    dig = lambda x: re.sub(r'\D', '', x or '')
+    print('  Carregando a carteira do ADVBOX...')
+    adv = {}
+    for l in advbox.listar_processos():
+        for k in ('process_number', 'protocol_number'):
+            n = dig(l.get(k))
+            if len(n) == 20:
+                adv[n] = l
+    print('  Carregando a carteira do Sync...')
+    desligar, divergencia, nao_lidos, ficam = [], [], [], 0
+    for p in sync._paginar('/v1/processos', rotulo='processos'):
+        n = dig(p.get('numero'))
+        l = adv.get(n)
+        arq_adv = l is not None and roteamento.processo_arquivado(l)
+        baixado = p.get('baixado') is True
+        lido = bool(p.get('ultima_sincronizacao') or p.get('ultimo_andamento'))
+        if l is not None and not arq_adv and baixado:
+            divergencia.append(p.get('numero'))
+        elif arq_adv or baixado:
+            desligar.append((p.get('numero'), 'arquivado no ADVBOX' if arq_adv else 'baixado no tribunal'))
+        elif l is None and not lido:
+            nao_lidos.append(p.get('numero'))
+        else:
+            ficam += 1
+
+    print()
+    print(f'  Ficam (em andamento): {ficam}')
+    print(f'  Fora do ADVBOX ainda nao lidos pelo Sync (ficam ate a leitura): {len(nao_lidos)}')
+    print(f'  Ativo no ADVBOX x baixado no tribunal (NAO desliga, conferir): {len(divergencia)}')
+    for n in divergencia[:30]:
+        print(f'    {n}')
+    motivos = {}
+    for _, m in desligar:
+        motivos[m] = motivos.get(m, 0) + 1
+    print(f'  A DESLIGAR: {len(desligar)} {motivos}')
+    if not desligar:
+        return
+    if not args.executar:
+        print('\n  Simulacao. Para desligar: sync desligar-arquivados --executar')
+        return
+    if input('\n  Desligar o monitoramento desses processos? (s/N): ').strip().lower() != 's':
+        print('  Cancelado.')
+        return
+    ok = erro = 0
+    for numero, _ in desligar:
+        try:
+            sync.desligar_monitoramento(numero, confirmado=True)
+            ok += 1
+        except sync.SyncError as e:
+            erro += 1
+            print(f'  ERRO {numero}: {e}')
+    print(f'  [ok] desligados: {ok} | erros: {erro}')
 
 
 def _conferir_oabs_no_sync():
@@ -1572,10 +2203,55 @@ def main():
 
     sync_sub.add_parser('webhooks', help='Lista os webhooks registrados na conta')
 
+    p_sync_des = sync_sub.add_parser(
+        'desligar-arquivados', help='Tira do Sync o arquivado no ADVBOX ou baixado no tribunal (simula; --executar grava)')
+    p_sync_des.add_argument('--executar', action='store_true', help='Desliga de fato (pede s/N)')
+
+    p_sync_imp = sync_sub.add_parser(
+        'importar-advbox', help='ESCRITA: importa no Sync os processos ativos do ADVBOX que o monitor nao achou (pede s/N)')
+    p_sync_imp.add_argument('--listar', action='store_true', help='So lista os que faltam, nao importa')
+
+    p_sync_at = sync_sub.add_parser(
+        'ativar', help='ESCRITA: ativa processos descobertos pelo monitor de OAB (pede s/N; custo acima do plano)')
+    p_sync_at.add_argument('--monitor', help='ID do monitor (default: todos)')
+    p_sync_at.add_argument('--todos', action='store_true',
+                           help='Ativa todos, inclusive acima do teto (gera fatura avulsa). Sem isto, so as vagas do plano')
+    p_sync_at.add_argument('--so-ativos', action='store_true',
+                           help='Deixa de fora o que esta arquivado no ADVBOX')
+
     p_sync_insp = sync_sub.add_parser('inspecionar', help='JSON cru do Sync (calibrar o adaptador)')
     p_sync_insp.add_argument('--recurso', default='intimacoes',
                              choices=['intimacoes', 'prazos', 'processos', 'monitores', 'webhooks'])
     p_sync_insp.add_argument('--quantidade', '-n', default=1, help='Quantos registros mostrar')
+
+    p_custas = subparsers.add_parser(
+        'custas',
+        help='Trava de custas antes do protocolo (inicial: gratuidade x guia x documentos)')
+    custas_sub = p_custas.add_subparsers(dest='acao')
+    p_cst_conf = custas_sub.add_parser(
+        'conferir', help='Confere UMA peca antes de protocolar (sai com status 1 se bloquear)')
+    p_cst_conf.add_argument('arquivo', nargs='?', help='Peca .docx/.pdf/.txt')
+    p_cst_conf.add_argument('--processo', '-p', help='Numero CNJ (cruza com o ADVBOX)')
+    p_cst_conf.add_argument('--cliente', '-c', help='Nome do cliente (confere a pasta na ZEUS)')
+    p_cst_conf.add_argument('--acao-peca', dest='acao_peca',
+                            choices=('alongamento', 'mora', 'mora-assistencia', 'revisional'),
+                            help='Tese, para conferir tambem o rol de documentos')
+    p_cst_conf.add_argument('--criar-tarefa', action='store_true',
+                            help='Abre as tarefas das pendencias no ADVBOX (pede confirmacao)')
+    p_cst_conf.add_argument('--apesar-de', dest='apesar_de',
+                            help='Libera mesmo com pendencia, registrando o motivo por escrito')
+    p_cst_fila = custas_sub.add_parser(
+        'fila', help='Fila de protocolo do ADVBOX: o que vai a protocolo sem custas/preparo')
+    p_cst_fila.add_argument('--dias', default=5, help='Janela a frente (default: 5)')
+    p_cst_fila.add_argument('--tudo', action='store_true',
+                            help='Mostra tambem o que esta OK e o que nao paga custas')
+    p_cst_fila.add_argument('--criar-tarefa', action='store_true',
+                            help='Abre RECOLHER CUSTAS para os pendentes (pede confirmacao)')
+    p_cst_aud = custas_sub.add_parser(
+        'auditar', help='Rede de seguranca: iniciais ja protocoladas sem custas')
+    p_cst_aud.add_argument('--dias', default=7, help='Janela de cadastro (default: 7)')
+    p_cst_aud.add_argument('--criar-tarefa', action='store_true',
+                           help='Abre RECOLHER CUSTAS para as pendentes (pede confirmacao)')
 
     p_apont = subparsers.add_parser(
         'apontamentos',
@@ -1621,6 +2297,59 @@ def main():
     p_vault.add_argument('--gravar', action='store_true',
                          help='Grava as notas (ainda pede confirmacao s/N)')
 
+    p_juris = subparsers.add_parser(
+        'jurisprudencia',
+        help='Busca jurisprudencia por tema no teor publicado no DJEN (todos os tribunais)')
+    p_juris.add_argument('consulta', help='Frase buscada (conferida exata no texto), ex.: "Sumula 298"')
+    p_juris.add_argument('--tribunal', metavar='SIGLAS',
+                         help='Ex.: TJRO,STJ,TRF1 (padrao: todos, sem trabalhista/eleitoral)')
+    p_juris.add_argument('--meses', type=int,
+                         help='Janela em meses (padrao: 3 em todos os tribunais, 12 com --tribunal)')
+    p_juris.add_argument('--de', help='Data inicial AAAA-MM-DD (sobrepoe --meses)')
+    p_juris.add_argument('--ate', help='Data final AAAA-MM-DD')
+    p_juris.add_argument('--tambem', action='append', metavar='FRASE',
+                         help='Outra frase que tambem tem de estar no texto (repetivel)')
+    p_juris.add_argument('--excluir', action='append', metavar='FRASE',
+                         help='Descarta o julgado que contenha a frase (repetivel)')
+    p_juris.add_argument('--tipo', metavar='TIPOS',
+                         help='liminar, tutela-recursal, sentenca, acordao, monocratica, outro '
+                              '(separados por virgula; padrao: todos)')
+    p_juris.add_argument('--favoravel', action='store_true',
+                         help='Esconde o que a leitura automatica marcou como desfavoravel ao produtor')
+    p_juris.add_argument('--so-ementa', action='store_true',
+                         help='So acordaos com ementa propria (os citaveis)')
+    p_juris.add_argument('--limite', type=int, default=1000,
+                         help='Maximo de publicacoes lidas por consulta (padrao: 1000)')
+    p_juris.add_argument('--listar', type=int, default=30, help='Quantos imprimir na tela (padrao: 30)')
+    p_juris.add_argument('--md', nargs='?', const='', metavar='ARQUIVO.md',
+                         help='Relatorio completo em Markdown (padrao: _trabalho/jurisprudencia/)')
+    p_juris.add_argument('--json', nargs='?', const='', metavar='ARQUIVO.json',
+                         help='Resultado estruturado em JSON')
+    p_juris.add_argument('--incluir-trabalhista', action='store_true',
+                         help='Nao descarta TRT/TST/TRE (padrao: descarta)')
+    p_juris.add_argument('--incluir-sem-conteudo', action='store_true',
+                         help='Mantem despacho e ato sem resultado identificado')
+
+    p_base = subparsers.add_parser(
+        'base', help='Base de julgados do DJEN e perfil decisorio por orgao (jurimetria)')
+    p_base.add_argument('acao', choices=['coletar', 'status', 'perfil'])
+    p_base.add_argument('--tribunal', default='TJRO', help='Sigla (padrao: TJRO)')
+    p_base.add_argument('--desde', default='2024-09-01', help='Coleta a partir de AAAA-MM-DD')
+    p_base.add_argument('--refazer', action='store_true', help='Recoleta tambem os meses fechados')
+    p_base.add_argument('--desde-perfil', metavar='AAAA-MM-DD',
+                        help='Perfil so com atos publicados a partir desta data')
+    p_base.add_argument('--gravar', action='store_true', help='Grava as notas (pede s/N)')
+
+    p_jm = subparsers.add_parser(
+        'jurimetria', help='Briefing estrategico: perfil do foro, precedentes e caminho ate o STJ')
+    p_jm.add_argument('--tese', required=True, choices=['alongamento', 'mora', 'mora-assistencia', 'revisional'])
+    p_jm.add_argument('--comarca', help='Ex.: Ariquemes, "Porto Velho"')
+    p_jm.add_argument('--processo', help='Numero CNJ: deduz a comarca pelo codigo de origem')
+    p_jm.add_argument('--tribunal', default='TJRO')
+    p_jm.add_argument('--peca', default='inicial', choices=['inicial', 'recurso', 'embargos'])
+    p_jm.add_argument('--sem-stj', action='store_true')
+    p_jm.add_argument('--md', action='store_true', help='Salva em _trabalho/jurisprudencia/')
+
     p_criar = subparsers.add_parser('criar-tarefa', help='Criar tarefa no ADVBOX')
     p_criar.add_argument('processo', help='ID do processo no ADVBOX')
     p_criar.add_argument('tipo', help='Tipo da tarefa (ex: ACOMPANHAMENTO)')
@@ -1658,6 +2387,9 @@ def main():
                               help='Numero do processo (CNJ). Sem ele, a pasta vai como SEM PROCESSO')
     p_drive_peca.add_argument('--converter', action='store_true',
                               help='Converter para Google Docs (revisao a varias maos)')
+    p_drive_peca.add_argument('--advogado-id', type=int, action='append',
+                              help='ID ADVBOX do advogado que recebe EDICAO na peca (repetivel). '
+                                   'Sem ele, usa o responsavel do processo (--processo)')
 
     p_gmail = subparsers.add_parser('gmail', help='Gmail (somente leitura) - buscar e baixar e-mails')
     gmail_sub = p_gmail.add_subparsers(dest='acao')
@@ -1758,12 +2490,23 @@ def main():
             cmd_sync(args)
         except sync.SyncError as e:
             print(f'\n  {e}')
+    elif args.comando == 'custas':
+        if not args.acao:
+            p_custas.print_help()
+        else:
+            cmd_custas(args)
     elif args.comando == 'apontamentos':
         cmd_apontamentos(args)
     elif args.comando == 'kpi':
         cmd_kpi(args)
     elif args.comando == 'vault':
         cmd_vault(args)
+    elif args.comando == 'jurisprudencia':
+        cmd_jurisprudencia(args)
+    elif args.comando == 'base':
+        cmd_base(args)
+    elif args.comando == 'jurimetria':
+        cmd_jurimetria(args)
     elif args.comando == 'criar-tarefa':
         cmd_criar_tarefa(args)
     elif args.comando == 'drive':

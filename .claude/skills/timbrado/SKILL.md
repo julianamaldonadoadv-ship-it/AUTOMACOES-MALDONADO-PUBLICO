@@ -26,17 +26,21 @@ A faixa é montada por `OPERACIONAL/gerar_timbrado.py` a partir de duas peças d
 **uma lista de dados**:
 
 - `assets/timbrado-2026-friso.png` (1682×76) — friso preto/dourado, largura total;
-- `assets/timbrado-2026-logo.png` (1050×278) — a logo MALDONADO ADVOGADOS, à esquerda;
+- `assets/timbrado-2026-logo-recortada.png` (720×278) — a logo MALDONADO ADVOGADOS, à esquerda
+  (a `timbrado-2026-logo.png` original sem o branco à direita, que tomava 4,6 cm da faixa);
 - o quadro de advogados, **em texto**, lido de `config/equipe.py` → `ADVOGADOS_TIMBRADO`.
 
-A arte vem de uma peça real do escritório (apelação em processo contra cooperativa de crédito),
+A arte vem da peça real `0000024-31.2026.8.22.0001 - Cliente AF x Sicoob - Apelação V6`,
 protocolada em **08/09/2026**. O que mudou desde então é só o quadro de nomes, que deixou de ser
 imagem: no `.jpeg` original (`assets/timbrado-maldonado-2026.jpeg`, mantido como referência) ele
 estava rasterizado, e por isso incluir advogado exigia editar imagem — em 8 nomes a arte já não
 comportava mais ninguém. Em texto, incluir advogado é uma linha de dado, e nome e OAB ficam
 pesquisáveis e copiáveis no PJe.
 
-Quadro de advogados que consta da faixa (**10 nomes**, atualizado em 15/09/2026):
+Quadro de advogados que consta da faixa (**11 nomes**, atualizado em 16/09/2026). Na faixa sai
+**o Dr. Renan primeiro e os demais em ordem alfabética** (a ordem é aplicada pelo gerador, não pela
+lista), em **uma coluna** alinhada à direita, Arial 9 pt, preto e negrito. Para a letra caber, o
+**cabeçalho cresceu** (Dra. Juliana, 16/09/2026; duas colunas foram testadas e recusadas):
 
 | Advogado(a) | OAB |
 |---|---|
@@ -50,13 +54,15 @@ Quadro de advogados que consta da faixa (**10 nomes**, atualizado em 15/09/2026)
 | Taynara Scatolin | OAB/MT 30.109 |
 | Heloisa Antunes | OAB/DF 76.621 |
 | Agenor Rufino | OAB/PE 62.751 |
+| Ana Sheila Garcez | OAB/RO 16.126 |
 
 > **A OAB do Dr. Agenor é de Pernambuco**, não de Rondônia (conferida em 19 publicações do
 > DJEN). Supor "OAB/RO" pelo escritório ser de Porto Velho põe número de outro advogado no papel.
 
 Fora do quadro, por decisão da GJ: **Bruna Vicente** (OAB/TO 9.013), retirada em 11/09/2026 —
-sair do timbrado não a tira dos processos em que é advogada constituída; e **Josué Kalebe** e
-**Ana Sheila**, que entram quando a GJ confirmar a OAB (`ADVOGADOS_SEM_OAB`). **OAB nunca é
+sair do timbrado não a tira dos processos em que é advogada constituída; e **Josué Kalebe**,
+que entra quando a GJ confirmar a OAB (`ADVOGADOS_SEM_OAB`). A **Dra. Ana Sheila** entrou em
+16/09/2026 com a OAB/RO 16.126 informada pela GJ (ainda sem publicação no DJEN). **OAB nunca é
 preenchida por suposição.**
 
 > **Carlos Oliveira (OAB/RO 7.486) NÃO consta mais.** O timbrado antigo
@@ -72,6 +78,12 @@ Editar `config/equipe.py` → `ADVOGADOS_TIMBRADO` e rodar:
 python OPERACIONAL/gerar_timbrado.py       # regera DOCS_MODELOS/timbrado_modelo.docx
 ```
 
+O mesmo comando regera o **modelo para os advogados**
+(`DOCS_MODELOS/TIMBRADO MALDONADO ADVOGADOS 2026.docx` e `.dotx`): a mesma faixa, com as regras
+desta skill como estilos do Word ("Maldonado Título", "Maldonado Jurisprudência", "Maldonado
+Assinatura"...) e um esqueleto de peça com os campos em amarelo. É o arquivo que se distribui à
+equipe; o `timbrado_modelo.docx` continua sendo a folha em branco da automação.
+
 O `.docx` é **artefato**: não editar à mão. Depois de regerar o timbrado, regerar também os dois
 modelos de peça, que o embutem:
 
@@ -80,9 +92,9 @@ python OPERACIONAL/gerar_modelo_declaratoria.py
 python OPERACIONAL/gerar_modelo_alongamento.py
 ```
 
-**Quem manda na altura da faixa é a logo (3,44 cm), não os nomes** — enquanto a coluna de nomes
-for mais baixa que ela, incluir advogado não desloca uma linha do corpo. Com a entrelinha atual
-cabem 10 nomes (3,39 cm); o 11º exige reduzir a entrelinha ou quebrar o quadro em duas colunas.
+**A margem superior é calculada para 12 nomes** (`CAPACIDADE_QUADRO`), não para os de hoje:
+com 11 pt de entrelinha o quadro reservado tem 4,66 cm, e incluir advogado até o 12º não desloca
+uma linha do corpo. O 13º exige subir a capacidade, e a margem acompanha sozinha.
 `gerar_timbrado.py` **falha com erro** em vez de estourar em silêncio — o estouro só apareceria
 no protocolo, e empurraria o corpo de toda peça para baixo.
 
@@ -91,8 +103,8 @@ no protocolo, e empurraria o corpo de toda peça para baixo.
 | Item | Valor |
 |---|---|
 | Página | A4 — 21,0 × 29,7 cm |
-| Faixa do timbrado | y **1,27 → 5,65 cm**, largura **20,83 cm** (borda a borda) |
-| Margem superior (início do corpo) | **5,33 cm** |
+| Faixa do timbrado | começa em y **1,27 cm**, largura **20,83 cm** (borda a borda); friso 0,94 cm + quadro de nomes |
+| Margem superior (início do corpo) | **7,37 cm** desde 16/09/2026 (era 5,33 cm, a medida da peça de 08/09/2026, quando a faixa acabava na logo) |
 | Margem esquerda | **2,54 cm** |
 | Margem direita | **2,44 cm** |
 | Margem inferior | **2,5 cm** |

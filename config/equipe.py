@@ -122,6 +122,9 @@ TIPOS_TAREFA = {
     "AVISAR_AUDIENCIA": 2596497,    # AVISAR CLIENTE DA AUDIENCIA
     # item que a rotina nao conseguiu decidir sozinha
     "CONFERIR_CONTROLLER": 4651503,  # ACOMPANHAMENTO
+    # controller agenda despacho com relator/vogais (recurso distribuido no 2o
+    # grau, inclusao em pauta - regra da Dra. Juliana, 21/09/2026)
+    "AGENDAR_DESPACHO": 9222516,    # AGENDAR DESPACHO
     # relatorio diario da rodada das 08:00
     "RELATORIO": 6018821,           # RELATORIO
 }
@@ -147,7 +150,8 @@ TIPOS_RESULTADO = {
 # Decisao da Dra. Juliana, 10/09/2026: as duas controllers + gerencia juridica.
 RELATORIO_DIARIO_IDS = [252009, 189532, 120163]
 RELATORIO_DIARIO_EMAILS = [
-    # Preencher com os e-mails reais no onboarding (as duas controllers + GJ).
+    "contato@exemplo.com.br",
+    "contato@exemplo.com.br",
     "contato@exemplo.com.br",
 ]
 
@@ -169,7 +173,7 @@ COMUNICACAO_CLIENTE = {
 
 # E-mails da mesma dupla (convite de agenda, quando for o caso)
 EMAILS_COMUNICACAO_CLIENTE = [
-    # Preencher com os e-mails reais no onboarding.
+    "contato@exemplo.com.br",
     "contato@exemplo.com.br",
 ]
 
@@ -218,6 +222,7 @@ ADVOGADOS_TIMBRADO = [
     ("Taynara Scatolin",   "OAB/MT 30.109"),   # incluida em 11/09/2026
     ("Heloisa Antunes",    "OAB/DF 76.621"),   # incluida em 11/09/2026
     ("Agenor Rufino",      "OAB/PE 62.751"),   # incluida em 15/09/2026
+    ("Ana Sheila Garcez",  "OAB/RO 16.126"),   # incluida em 16/09/2026 (OAB informada pela GJ)
 ]
 
 # Advogados do escritorio que NAO entram no timbrado ate que a OAB seja
@@ -225,16 +230,22 @@ ADVOGADOS_TIMBRADO = [
 # "os demais por ora nao coloque, quando eu tiver os dados te informo").
 ADVOGADOS_SEM_OAB = [
     ("Josué Kalebe Oliveira de Andrade", 100903),
-    ("Ana Sheila da Silva Garcez",       295888),
 ]
+# Levantamento no DJEN em 16/09/2026 (so' indicio, a GJ confirma antes de entrar):
+#   - Josue Kalebe: JOSUE KALEBE OLIVEIRA DE ANDRADE, OAB/RO 15.351, em 78
+#     publicacoes (campo estruturado do DJEN). Entrando, e' o 12o nome: o quadro
+#     nao cabe mais em uma coluna (ver gerar_timbrado.ALTURA_MAXIMA_QUADRO).
+# Saiu desta lista em 16/09/2026: ANA SHEILA DA SILVA GARCEZ, OAB/RO 16.126,
+# informada pela Dra. Juliana. Nao ha' publicacao dela no DJEN ate' essa data
+# (inscricao recente), entao o numero veio da GJ, nao do Diario.
 # Saiu desta lista em 15/09/2026: AGENOR RUFINO DE MELO NETO, que entrou no
 # quadro. A OAB dele e' de PERNAMBUCO (OAB/PE 62.751), nao de Rondonia -
 # conferida em 19 publicacoes do DJEN. Quem supuser "OAB/RO" pelo escritorio
 # ser de Porto Velho poe numero de outro advogado no papel.
 
 # Saiu da faixa em 11/09/2026 por decisao da Dra. Juliana: BRUNA VICENTE
-# (OAB/TO 9.013). Atencao: ela subscreveu iniciais em 2026 (p. ex. a de
-# um cliente, processo 0000000-00.0000.0.00.0000, em 10/06/2026) e segue
+# (OAB/TO 9.013). Atencao: ela subscreveu iniciais em 2026 (p. ex. a do
+# Sr. Cliente V, 0000072-93.2026.8.11.0098, em 10/06/2026) e segue
 # como advogada constituida nesses autos - sair do timbrado nao a tira do
 # processo.
 #
@@ -245,5 +256,5 @@ ADVOGADOS_SEM_OAB = [
 
 # Planilha do KPI de exito (uma por competencia, aberta por semana) - pasta do
 # Drive indicada pela Dra. Juliana em 15/09/2026. Usada por OPERACIONAL/kpi_planilha.py
-# (comando: main.py kpi --planilha). Preencher com o ID da pasta no onboarding.
-KPI_PLANILHA_PASTA_ID = None
+# (comando: main.py kpi --planilha).
+KPI_PLANILHA_PASTA_ID = None  # ID da pasta do Drive onde a planilha de acompanhamento e gravada

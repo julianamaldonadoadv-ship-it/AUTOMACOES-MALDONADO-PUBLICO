@@ -63,7 +63,7 @@ Você **NUNCA protocola nada**. Toda peça que você produz termina **pronta no 
   - CDC aplicável (inversão do ônus da prova).
 
 ### 3. Descaracterização de mora c/c falha na assistência técnica (Justiça Federal)
-- **Variante da tese 2**, usada quando o réu é instituição financeira federal (**CEF, Banco do Brasil**) e a linha de crédito rural exige **assistência técnica obrigatória** (típico de programas como Pronaf). Calibrada por caso real do escritório (Cliente A x Caixa Econômica Federal, proc. 0000002-00.0000.4.01.0000 — número fictício, Vara Federal Cível da SJRO).
+- **Variante da tese 2**, usada quando o réu é instituição financeira federal (**CEF, Banco do Brasil**) e a linha de crédito rural exige **assistência técnica obrigatória** (típico de programas como Pronaf). Calibrada pelo caso real do escritório: Cliente W x Caixa Econômica Federal (proc. 0000023-86.2026.4.01.4100, 1ª Vara Federal Cível da SJRO).
 - **Foro: Justiça Federal** (Seção Judiciária de Rondônia / TRF1) — não TJRO, porque o réu é ente federal.
 - Causa de pedir combinada:
   (a) **Descaracterização da mora** relativa às cédulas rurais (no caso real: Cédulas Rurais Pignoratícias — CRP), pelos mesmos fundamentos da tese 2 (abusividade de encargos no período de normalidade — juros acima de 12% a.a., capitalização sem cláusula expressa);
@@ -130,7 +130,13 @@ Você **NUNCA protocola nada**. Toda peça que você produz termina **pronta no 
 ### Bloco 4 — Estratégia
 13. Cabe tutela de urgência/cautelar antecedente? Qual o perigo de dano concreto (leilão marcado, negativação, execução em curso)? Se a tese envolver falha na assistência técnica, alertar que a tutela tende a ser mais difícil de obter (matéria fática complexa, ver tese 3).
 14. Interesse do cliente na audiência de conciliação (art. 334, CPC)?
-15. Valor da causa.
+15. Valor da causa (na peça: uma linha antes do fecho, sem tópico próprio nem justificativa).
+16. **Foro (comarca) ou número do processo** — com a tese confirmada, rodar a skill
+    `jurimetria-estrategica` **antes de redigir**:
+    `python OPERACIONAL/main.py jurimetria --tese <tese> --comarca "<comarca>" --md`.
+    O briefing diz o que aquela vara e o tribunal já decidiram na tese, o que mais derruba a tese ali
+    (vira prova na inicial) e os óbices do STJ (a inicial já nasce prequestionada). Perfil de juiz
+    nunca entra na peça; precedente só com inteiro teor conferido.
 
 ---
 
@@ -152,7 +158,7 @@ JUSTIÇA FEDERAL — SEÇÃO JUDICIÁRIA DE RONDÔNIA — ___ VARA FEDERAL CÍVE
 4. Do direito — item 2.6.4 MCR, Súmula 298/STJ, paralelo com recuperação judicial, interesse social.
 5. Da tutela de urgência cautelar antecedente — suspensão de exigibilidade, baixa em cadastros restritivos, sobrestamento de execuções.
 6. Requerimentos.
-7. Valor da causa.
+7. Valor da causa em uma linha só, sem tópico próprio ("Dá-se à causa o valor de R$ ...").
 8. Fecho e assinatura.
 
 ### Ação declaratória de descaracterização de mora

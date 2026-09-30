@@ -86,6 +86,8 @@ _MOTIVO_ROTULO = {
     "sentenca (extincao com/sem resolucao de merito)":
         "Sentença (extinção com ou sem resolução de mérito)",
     "homologacao de acordo": "Homologação de acordo",
+    "tutela indeferida por ora, aguardando a contestacao - monitorar e renovar o pedido (regra da GJ, 17/09/2026)":
+        "Tutela indeferida por ora, aguardando a contestação — monitorar e renovar o pedido (regra da GJ, 17/09/2026)",
 }
 
 
@@ -329,6 +331,18 @@ def montar_relatorio(linhas, apuracao, periodo, oabs, gerado_em, ressalvas_extra
               f"{nao_class} dos {total} atos do período ({pct(prop, 0)}) não são decisão "
               f"classificável. Para achar as {len(computadas)} decisões que entram no KPI, "
               f"alguém precisaria ler as {total} publicações uma a uma.</div>", ""]
+
+    monitorar = [l for l in linhas if l.get("monitorar_renovacao")]
+    if monitorar:
+        p += ['<div class="alerta"><span class="tit">Monitorar: tutelas indeferidas por ora, '
+              'aguardando a contestação</span>',
+              "Não entram como inêxito (regra da GJ, 17/09/2026). Depois da contestação, o "
+              "pedido deve ser renovado; a decisão sobre o pedido renovado é que entra no KPI.</div>", "",
+              "| Data | Cliente | Processo | Advogado | Trecho da decisão |", "|---|---|---|---|---|"]
+        for l in sorted(monitorar, key=lambda x: x["data"]):
+            p.append(f"| {data(l['data'])} | {_titulo_adv(l['cliente'])} | {proc(l['processo'])} | "
+                     f"{_nome_curto(l['advogado_responsavel'])} | *{curto(l.get('monitorar_trecho'), 110)}* |")
+        p.append("")
 
     p += ["### Por que cada ato ficou de fora", "", "| Motivo da exclusão | Atos |", "|---|---:|"]
     for m, n in sorted(motivos.items(), key=lambda x: -x[1]):

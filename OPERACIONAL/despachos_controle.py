@@ -105,8 +105,8 @@ def _lawsuit(t):
 def _concluida_em(t, exigir_controller=False):
     """Data de conclusao da tarefa. Em PROTOCOLO vale a conclusao da CONTROLLER
     (criterio da GJ, 13/09/2026): o advogado marca a parte dele quando entrega a
-    peca, antes do protocolo. Dois clientes (15/09) sairam como protocolados
-    so porque o advogado concluiu; a controller nao tinha protocolado."""
+    peca, antes do protocolo. Cliente AD e Cliente AE (15/09) sairam como protocolados
+    so porque o Dr. Matheus concluiu; a Manuelle nao tinha protocolado."""
     usuarios = t.get('users') or []
     if exigir_controller and any(u.get('user_id') in IDS_CONTROLLERS for u in usuarios):
         usuarios = [u for u in usuarios if u.get('user_id') in IDS_CONTROLLERS]
@@ -149,8 +149,8 @@ def dados_do_processo(numero, cache, lawsuit_id=None):
     """Grupo, responsavel e clientes — com cache em disco, para a rodada diaria
     nao gastar o rate limit do ADVBOX repetindo consulta.
 
-    Aceita `lawsuit_id` porque **ha cadastro sem numero de processo**: o de um cliente
-    (lawsuit_id 00000000) existe desde 10/06, antes da distribuicao, com `process_number`
+    Aceita `lawsuit_id` porque **ha cadastro sem numero de processo**: o do Cliente AC
+    (00000000) existe desde 10/06, antes da distribuicao, com `process_number`
     nulo. Buscar so pelo numero devolvia linha vazia, quando o ADVBOX tinha grupo,
     responsavel e cliente — levantado pela Dra. Juliana em 13/09/2026."""
     chave = ''.join(filter(str.isdigit, numero or '')) or (f'id:{lawsuit_id}' if lawsuit_id else '')
@@ -213,8 +213,8 @@ def coletar(de, ate):
             despachos.append({'tipo': nome, 'quando': str(t.get('date'))[:10],
                               'pendente': True, 'tarefa': t})
         # Despachos realizados ANTES do periodo: nao entram na aba, servem so para
-        # saber se o processo da emenda ja tinha sido despachado (Cliente A,
-        # 0000000-00: despacho em 31/08, emenda em 14/09).
+        # saber se o processo da emenda ja tinha sido despachado (Cliente Y e Cliente Z,
+        # 0000042-00: despacho em 31/08, emenda em 14/09).
         antes = (datetime.strptime(de, '%Y-%m-%d').date() - timedelta(days=120)).isoformat()
         vespera = (datetime.strptime(de, '%Y-%m-%d').date() - timedelta(days=1)).isoformat()
         for t in (advbox.listar_tarefas(task_id=tid, completed_start=antes, completed_end=vespera) or []):
@@ -229,13 +229,69 @@ def coletar(de, ate):
 # MONTAGEM DAS LINHAS
 # ============================================================
 
+# Tres situacoes, e so tres (regra da Dra. Juliana, 24/09/2026): o que interessa
+# a Controladoria e' saber se o despacho foi SOLICITADO, se ja esta AGENDADO com
+# data, ou se ja foi REALIZADO. Antes havia quatro rotulos ("A AGENDAR" e
+# "AGENDAMENTO PEDIDO"), que descreviam o estado da tarefa, nao o do despacho.
+SITUACOES = ('SOLICITADO', 'AGENDADO', 'REALIZADO')
+
+
+_RE_CNJ = re.compile(r'\d{7}-?\d{2}\.?\d{4}\.?\d\.?\d{2}\.?\d{4}')
+_RE_CADASTRAR = re.compile(r'cadastrar\s+(?:o\s+)?(?:processo|acao|ação)', re.I)
+_DESISTENCIA = re.compile(r'desist[eê]ncia|nao protocolar|não protocolar|litispend', re.I)
+
+
+def desfecho_do_protocolo(lawsuit_id, numero, quando, dias=10):
+    """Le o /history do processo protocolado e devolve (numero_novo, aviso).
+
+    Regra da Dra. Juliana (24/09/2026): o numero do processo que nasceu do
+    protocolo esta no proprio historico — a controller abre a tarefa CADASTRAR
+    PROCESSOS logo depois ("Cadastrar acao. 0000041-22.2026.8.22.0016"). Casar
+    por ai e' exato; casar pelo cliente e' palpite, e cliente com muitos
+    processos (a Cliente K) caia em "CONFERIR VINCULO" toda vez.
+
+    O mesmo historico mostra quando o protocolo NAO aconteceu: desistencia
+    protocolada (Cliente S) ou ordem de nao protocolar por litispendencia
+    (Cliente K 0000043-00). Nesses casos cobrar despacho e' falso alarme.
+    """
+    dig = ''.join(filter(str.isdigit, numero or ''))
+    try:
+        historico = advbox.listar_historico(lawsuit_id) or []
+    except Exception:
+        return '', ''
+    novo, aviso = '', ''
+    for h in historico:
+        quando_h = str(h.get('start') or h.get('created_at') or '')[:10]
+        if quando and quando_h and not (quando <= quando_h <= _mais_dias(quando, dias)):
+            continue
+        texto = f"{h.get('task') or ''} {h.get('comments') or ''}"
+        if not novo and _RE_CADASTRAR.search(texto):
+            for achado in _RE_CNJ.findall(texto):
+                if ''.join(filter(str.isdigit, achado)) != dig:
+                    novo = achado
+                    break
+        if not aviso and _DESISTENCIA.search(h.get('comments') or ''):
+            aviso = re.sub(r'\s+', ' ', (h.get('comments') or ''))[:90]
+    return novo, aviso
+
+
+def _mais_dias(data_iso, dias):
+    d = prazos._para_date(data_iso)
+    return prazos.iso(d + timedelta(days=dias)) if d else '9999-12-31'
+
+
 def _situacao(d):
-    if not d['pendente']:
-        return 'REALIZADO' if d['tipo'] in ('DESPACHO REALIZADO', 'DESPACHO COM JUIZ',
-                                            'DESPACHO COM O DESEMBARGADOR') else 'AGENDAMENTO PEDIDO'
-    if d['tipo'] in ('DESPACHO COM JUIZ', 'DESPACHO COM O DESEMBARGADOR'):
-        return 'AGENDADO'
-    return 'A AGENDAR'
+    """SOLICITADO (pedido aberto) -> AGENDADO (dia marcado) -> REALIZADO."""
+    com_o_magistrado = d['tipo'] in ('DESPACHO COM JUIZ', 'DESPACHO COM O DESEMBARGADOR')
+    if d['tipo'] == 'DESPACHO REALIZADO':
+        return 'REALIZADO'
+    if com_o_magistrado:
+        # a tarefa do despacho com juiz/desembargador nasce com a data marcada;
+        # concluida, o despacho aconteceu
+        return 'REALIZADO' if not d['pendente'] else 'AGENDADO'
+    # AGENDAR DESPACHO: e' o pedido. Concluir a tarefa significa que a
+    # controller pediu o horario, nao que despachou.
+    return 'SOLICITADO'
 
 
 def _clientes_id(t):
@@ -253,8 +309,8 @@ def _justica(numero):
 
 def montar(protocolos, despachos, cache):
     # A tarefa de PROTOCOLO fica no processo de ORIGEM (PROC MAE / 1o grau) e o
-    # despacho acontece no processo NOVO: a inicial de um cliente foi protocolada na
-    # tarefa do 0000000-01 e despachada no 0000000-02. Ligar so pelo numero do
+    # despacho acontece no processo NOVO: a inicial da Cliente AA foi protocolada na
+    # tarefa do 0000044-00 e despachada no 0000045-00. Ligar so pelo numero do
     # processo marcava 7 de 9 protocolos como "SEM DESPACHO" — falso.
     # Por isso a ligacao e' pelo CLIENTE, e a planilha mostra em qual processo o
     # despacho saiu, para a controller conferir o vinculo.
@@ -266,7 +322,7 @@ def montar(protocolos, despachos, cache):
     linhas_p = []
     # Cada protocolo gerou UM processo novo: processo ja casado com um protocolo
     # anterior nao pode ser reaproveitado por outro. Sem isso, o protocolo de
-    # 08/09 do Cliente A casava com o agravo de 02/09, que ja tinha dono.
+    # 08/09 do Cliente Y casava com o agravo de 02/09, que ja tinha dono.
     ja_usados = set()
     for p in sorted(protocolos, key=lambda x: x['data']):
         numero = _lawsuit(p['tarefa']).get('process_number') or ''
@@ -277,6 +333,12 @@ def montar(protocolos, despachos, cache):
             info = {**info, 'clientes': ', '.join(
                 c.get('name', '') for c in (_lawsuit(p['tarefa']).get('customers') or []))}
         clientes_p = _clientes_id(p['tarefa'])
+
+        # O historico do processo protocolado diz o numero que nasceu dali
+        # (tarefa CADASTRAR PROCESSOS) e avisa quando o protocolo nao andou
+        # (desistencia / "nao protocolar").
+        nascido, aviso_desfecho = desfecho_do_protocolo(
+            p['tarefa'].get('lawsuits_id'), numero, p['data'])
 
         # candidatos: despacho do MESMO cliente, a partir da data do protocolo.
         candidatos = [d for d in despachos
@@ -296,12 +358,19 @@ def montar(protocolos, despachos, cache):
             despachado_antes = anteriores[-1] if anteriores else ''
         candidatos.sort(key=lambda x: x['quando'] or '')
 
-        # Cliente com varios processos (o Cliente A tem 3 agravos e 2 de 1o grau) faria
+        # Cliente com varios processos (o Cliente Y tem 3 agravos e 2 de 1o grau) faria
         # o protocolo de um agravo casar com o despacho de outro. Por isso escolhe-se
         # primeiro o PROCESSO ALVO, pelo tipo da peca protocolada, e so entao se mede
         # situacao e prazo dentro dele.
         alvo, tarefas_alvo = '', []
-        if candidatos:
+        if nascido and candidatos:
+            dig_novo = ''.join(filter(str.isdigit, nascido))
+            no_novo = [d for d in candidatos
+                       if ''.join(filter(str.isdigit,
+                                         _lawsuit(d['tarefa']).get('process_number') or '')) == dig_novo]
+            if no_novo:
+                alvo, tarefas_alvo, candidatos = nascido, no_novo, no_novo
+        if candidatos and not tarefas_alvo:
             por_num = {}
             for d in candidatos:
                 por_num.setdefault(_lawsuit(d['tarefa']).get('process_number') or '', []).append(d)
@@ -327,13 +396,13 @@ def montar(protocolos, despachos, cache):
                 melhores.append((0 if casa else 1, min(d['quando'] or '' for d in ds), n_desp, ds))
             melhores.sort()
             # Cliente com mais de um processo elegivel: o vinculo nao se deduz dos
-            # dados (o Cliente B tem duas acoes de descaracterizacao da mora). Nesse
+            # dados (o Cliente I tem duas acoes de descaracterizacao da mora). Nesse
             # caso a planilha NAO escolhe — pede conferencia e lista os candidatos.
             qualificados = [m for m in melhores if m[0] == 0]
             if not esperado and len(qualificados) > 1:
                 # Desempate pela justica: a inicial nasce por dependencia no mesmo
-                # segmento do processo da tarefa. A do Cliente B foi protocolada na
-                # execucao federal 0000000-03 e virou o 0000000-04 (TRF1); as outras
+                # segmento do processo da tarefa. A do Cliente I foi protocolada na
+                # execucao federal 0000046-00 e virou o 0000047-00 (TRF1); as outras
                 # duas acoes dele sao do TJRO. Continuando empatado, nao escolhe.
                 mesma = [m for m in qualificados
                          if _justica(m[2]) and _justica(m[2]) == _justica(numero)]
@@ -354,7 +423,7 @@ def montar(protocolos, despachos, cache):
             tarefas_alvo.sort(key=lambda x: x['quando'] or '')
             # O gatilho se cumpre com o PRIMEIRO despacho realizado apos o protocolo.
             # Tarefa de despacho posterior no mesmo processo e' outro ciclo (no
-            # Cliente B, o AGENDAR de 15/09 e' o despacho dos embargos de declaracao)
+            # Cliente I, o AGENDAR de 15/09 e' o despacho dos embargos de declaracao)
             # e nao pode fazer o despacho de 04/09 voltar a "a agendar".
             realizados = [d for d in tarefas_alvo if _situacao(d) == 'REALIZADO']
             ref = realizados[0] if realizados else tarefas_alvo[-1]
@@ -371,13 +440,15 @@ def montar(protocolos, despachos, cache):
         elif despachado_antes:
             # ja despachado antes da emenda: nao e' falta, fica informado com a data
             sit, quando, onde = 'DESPACHADO ANTES DA EMENDA', despachado_antes, 'mesmo processo'
+        elif aviso_desfecho:
+            sit, onde = 'PROTOCOLO NAO ANDOU', aviso_desfecho
         elif candidatos:
             sit = 'CONFERIR VINCULO'
             onde = ', '.join(sorted({_lawsuit(d['tarefa']).get('process_number') or '?'
                                      for d in candidatos})[:3])
 
         # O processo novo costuma nomear a tese que o processo-mae nao nomeia
-        # (o 0000000-01 de um cliente e' "ACAO CIVEL"; o 0000000-02, que nasceu do
+        # (o 0000044-00 da Cliente AA e' "ACAO CIVEL"; o 0000045-00, que nasceu do
         # protocolo, e' "DESCARACTERIZACAO DA MORA"). Fica FORA do elif: vale
         # justamente quando o vinculo e' unico, que e' quando ha alvo.
         if escopo(info['grupo']) != 'rural' and alvo:

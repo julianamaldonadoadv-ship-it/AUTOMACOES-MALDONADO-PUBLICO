@@ -160,6 +160,20 @@ def carregar_settings(force=False):
     return data
 
 
+def email_usuario(user_id):
+    """E-mail do usuario ADVBOX (settings['users']), em minusculas; None se nao achar.
+
+    Usado para liberar edicao da peca ao advogado responsavel no Drive
+    (google_integration.liberar_edicao). O e-mail vem do cadastro do ADVBOX,
+    nunca de mapa proprio: pessoa entra e sai da equipe e o ADVBOX e' a fonte.
+    """
+    for u in carregar_settings().get('users', []) or []:
+        if str(u.get('id')) == str(user_id):
+            email = (u.get('email') or '').strip().lower()
+            return email or None
+    return None
+
+
 def buscar_id_por_nome(tipo, nome_parcial):
     """Busca ID em settings por nome parcial. tipo: 'users', 'origins', 'stages', 'categories', etc."""
     settings = carregar_settings()
@@ -644,13 +658,30 @@ def criar_publicacao(lawsuit_id, task_id, guest_ids, comments='',
         (OPERACIONAL/roteamento_controller.resolver() -> from_id); sem processo,
         config.equipe.USUARIOS_ADVBOX[USUARIO_PADRAO_TAREFAS].
     date_deadline: prazo fatal (YYYY-MM-DD) - opcional
-    start_date: data da tarefa (YYYY-MM-DD). Se None, usa hoje.
+    start_date: DATA DA TAREFA (YYYY-MM-DD): o dia em que a pessoa deve agir e em
+        que a tarefa aparece na agenda dela. Se None, usa hoje.
+
+        ATENCAO (apontamento da Dra. Juliana, 23/09/2026): tarefa criada hoje
+        para ser feita amanha tem de nascer com start_date do DIA DA ACAO. Com a
+        data de hoje e prazo amanha, ela aparece na agenda de HOJE e, ao virar o
+        dia, conta como ATRASO do advogado mesmo estando dentro do prazo. As
+        rotinas D-5/D-3 do POP seguem nascendo com a data de hoje de proposito,
+        porque ali a tarefa deve aparecer antes do prazo; tarefa pontual e' que
+        precisa informar o dia.
     """
     if not from_id:
         raise ValueError("from_id obrigatorio - passe o ID ADVBOX do responsavel (config/equipe.py)")
+    hoje = time.strftime('%Y-%m-%d')
+    if start_date and start_date < hoje:
+        print('  AVISO: start_date %s esta no passado; gravando com %s.' % (start_date, hoje))
+        start_date = hoje
+    if not start_date and date_deadline and date_deadline > hoje:
+        print('  AVISO: prazo %s sem start_date. Se a acao e do dia do prazo, passe '
+              'start_date=%s para a tarefa nao nascer como atraso na agenda.'
+              % (date_deadline, date_deadline))
     payload = {
         'lawsuits_id': str(lawsuit_id),
-        'start_date': start_date or time.strftime('%Y-%m-%d'),
+        'start_date': start_date or hoje,
         'from': str(from_id),
         'guests': guest_ids if isinstance(guest_ids, list) else [guest_ids],
         'tasks_id': str(task_id),
@@ -815,8 +846,11 @@ def listar_tarefas(user_name=None, user_id=None, lawsuit_id=None,
 
     todas = []
     while True:
-        data = _request('GET', '/posts', params=params)
-        registros = data.get('data', [])
+        # _request devolve None quando a API esgota os retries (429/timeout):
+        # sem este guarda a rodada inteira morre com AttributeError e a planilha
+        # fica sem os dados do dia (aconteceu na revisao de 24/09/2026).
+        data = _request('GET', '/posts', params=params) or {}
+        registros = data.get('data') or []
         todas.extend(registros)
         total = data.get('totalCount', 0)
         if len(todas) >= total or not registros:

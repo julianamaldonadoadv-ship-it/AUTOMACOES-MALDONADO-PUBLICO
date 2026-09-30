@@ -211,10 +211,15 @@ def resumo_despacho(evs, data_pub):
     if not evs:
         return 'ADVBOX: sem agendamento de despacho registrado.', 'Sem agendamento'
     evs = sorted(evs, key=lambda e: e['quando'])
+    # Os rotulos vem de despachos_controle._situacao, que em 24/09/2026 passou a
+    # usar as 3 categorias pedidas pela GJ (SOLICITADO -> AGENDADO -> REALIZADO).
+    # Este resumo ainda procurava os nomes antigos ('AGENDAMENTO PEDIDO', 'A
+    # AGENDAR'), que nao existem mais: toda decisao saia como "sem agendamento" e
+    # a planilha perdia o historico de despacho a cada rodada.
     real = [e for e in evs if e['situacao'] == 'REALIZADO' and e['quando'] <= data_pub]
-    pedidos = [e for e in evs if e['situacao'] == 'AGENDAMENTO PEDIDO' and e['quando'] <= data_pub]
+    pedidos = [e for e in evs if e['situacao'] == 'SOLICITADO' and e['quando'] <= data_pub]
     depois = [e for e in evs if e['situacao'] == 'REALIZADO' and e['quando'] > data_pub]
-    pend = [e for e in evs if e['situacao'] in ('A AGENDAR', 'AGENDADO')]
+    pend = [e for e in evs if e['situacao'] == 'AGENDADO']
     partes = []
     if real:
         quem = sorted({p.strip().title() for e in real if e['tipo'] != 'DESPACHO REALIZADO'
@@ -347,7 +352,7 @@ def montar_registros(linhas, diagnosticos, semanas, despachos=None, categorias=N
             continue
         nums = numeros_do_registro(r)
         # Processo relacionado (origem, embargos) so conta perto da decisao: o
-        # despacho de junho na acao de origem de uma cliente nao foi sobre o agravo
+        # despacho de junho na acao de origem da Cliente AB nao foi sobre o agravo
         # decidido em setembro. No proprio processo, vale o historico inteiro.
         corte = (datetime.strptime(r['data'], '%Y-%m-%d').date() - timedelta(days=45)).isoformat()
         evs = [e for e in despachos if e['processo'] == r['chave_dig']
@@ -470,7 +475,7 @@ def aba_taxa(regs, carteira, semanas, nome_mes, periodo, titulo):
     add(['Notas metodológicas'], 'bloco')
     notas = [
         '1. Fonte: intimações capturadas no DJEN pelas OABs monitoradas, classificadas pela automação (kpi_exito) e ajustadas pelas decisões da GJ registradas em docs/kpi_exito/DECISOES_GJ_AAAA-MM.json. A carteira rural e a diversa são apuradas separadamente e nunca se somam.',
-        '2. Semana: aba por semana útil (segunda a sexta), pela data de disponibilização no DJEN, salvo quando a GJ já lançou a decisão em outra semana (ex.: 0000000-00, decisão de 01/09 registrada na aba Semana 01.09-04.09).',
+        '2. Semana: aba por semana útil (segunda a sexta), pela data de disponibilização no DJEN, salvo quando a GJ já lançou a decisão em outra semana (ex.: 0000055-00, decisão de 01/09 registrada na aba Semana 01.09-04.09).',
         '3. Decisão já computada no mês anterior não pontua de novo, ainda que republicada no DJEN nesta competência (comparação pela data do ato).',
         '4. Atribuição por advogado: o resultado é de quem conduziu o ato que gerou a decisão, não do responsável atual no ADVBOX (orientação da GJ de 15/09/2026). "A confirmar (X)" indica o responsável atual do ADVBOX ainda não conferido contra o histórico do processo.',
         '5. Pontos de bonificação (PROPOSTA, validação da GJ): carteira rural pelo Plano de Carreira v2 (item 10: liminar relevante +1, sentença de mérito +2, suspensão relevante +1 a +2, decisão com utilidade real +0,5; item 12.1: derrota aceitável -0,5 conforme padrão de agosto/Presidência, ponto técnico -1, estratégia insuficiente -1 a -2, falha técnica relevante -2 a -3, omissão grave -5); carteira diversa pelo Regulamento v3 (-0,50 derrota aceitável por decisão da Presidência; ausência de prova -0,20 a -0,50). Sem despacho antes da decisão: -0,5 nas derrotas rurais (tipo B) e -0,10 proposto nas diversas; nos êxitos, conta só para a taxa de despachos, que precisa chegar a 90% para habilitar a variável (Plano, item 5, I). D3, retrabalho, projetos e margem financeira não constam desta base.',

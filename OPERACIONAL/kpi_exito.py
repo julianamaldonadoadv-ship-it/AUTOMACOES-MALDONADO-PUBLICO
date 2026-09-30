@@ -7,7 +7,7 @@
   no DJEN.
 
   FONTE DA REGUA: "7 - MANUAL DO EXITO JURIDICO KPI", v1.0, maio/2026
-  (Google Doc no Drive do
+  (Google Doc <ID_DO_DOC_NO_DRIVE>, no Drive do
   escritorio) - CEO Dr. Renan Maldonado e GJ Dra. Juliana de Lara. E' ele que
   define os 4 KPIs, os pesos, o que entra e o que fica de fora. O relatorio
   "Taxa de Exito por Advogado - Jun-Jul-Ago 2026" e' aplicacao da regua a uma
@@ -103,7 +103,7 @@ def normalizar(texto):
 # para frente: no corpo da decisao o juiz transcreve a decisao agravada, a
 # ementa da jurisprudencia citada e o pedido da parte - todos cheios de
 # "recurso provido" e "julgo procedente" que nao sao o resultado deste ato.
-# (Ex.: 0000000-00.0000.0.00.0000, em que "recurso provido" so aparece dentro
+# (Ex.: 0000056-67.2025.8.22.0002, em que "recurso provido" so aparece dentro
 #  de um acordao do TJ-MS citado pela parte.)
 _ABERTURAS_DISPOSITIVO = (
     "ante o exposto", "diante do exposto", "do exposto", "isso posto",
@@ -112,6 +112,90 @@ _ABERTURAS_DISPOSITIVO = (
     "em face do exposto", "por tais razoes", "pelas razoes expostas",
     "ex positis",
 )
+
+# Secao intitulada so "DISPOSITIVO", sem "ante o exposto" (0000057-21.2026.8.11.0100,
+# Brasnorte/MT: "dispositivo indefiro a tutela..."). A palavra sozinha aparece na
+# fundamentacao ("dispositivo legal"), por isso so vale seguida de verbo operativo
+# ou de abertura de dispositivo.
+_TITULO_DISPOSITIVO = re.compile(
+    r"\bdispositivo\s*[:\-]?\s*(?=ante|diante|pelo exposto|isso posto|posto isso|em face|"
+    r"indefiro|defiro|julgo|concedo|nego|dou |homologo|rejeito|acolho|determino|"
+    r"declaro|extingo|revogo|mantenho|conheco)")
+
+# Tutela decidida em 1o grau com o verbo na 1a pessoa, fora de qualquer marcador
+# de dispositivo (0000058-58.2026.8.22.0016, Costa Marques: "desse modo, indefiro,
+# por ora, o pedido de tutela da evidencia", seguido de CEJUSC e "cumpra-se" - o
+# fecho lido parecia despacho). So usado como reserva em ato de 1o grau: no 2o grau
+# o relator transcreve a decisao agravada, que tambem esta na 1a pessoa.
+_TUTELA_OPERATIVA_1G = re.compile(
+    r"\b(?:indefiro|defiro|concedo|revogo)(?:,? (?:por ora|parcialmente|em parte),?)? "
+    r"(?:o pedido de |a |os pedidos de )?(?:tutela|liminar|antecipacao dos efeitos)")
+
+# Suspensao de ato CONSTRITIVO a pedido nosso vale como tutela de 1o grau
+# deferida (regra da Dra. Juliana, 24/09/2026, sobre a Cliente K x Banco do Brasil,
+# 0000065-00: "SOBRESTO temporariamente a expedicao do mandado de avaliacao e
+# penhora de 115 semoventes"). O verbo nao e' "defiro", entao o ato saia como
+# despacho de mero expediente e a decisao favoravel ficava fora do KPI.
+_SUSPENSAO_CONSTRICAO = re.compile(
+    r"\b(?:sobresto|suspendo|determino (?:o sobrestamento|a suspensao)|"
+    r"defiro (?:o pedido de |a )?(?:sobrestamento|suspensao))[^.]{0,160}"
+    r"(?:penhora|arresto|leilao|praca|hasta publica|expropria|alienac|constric|"
+    r"bloqueio|transferencia de valores|levantamento|protesto|negativac|"
+    r"busca e apreensao|remocao|exigibilidade|atos executivos|mandado)")
+
+# Suspensao que NAO e' exito nosso: o processo para por causa legal ou por
+# sobrestamento de tema repetitivo, nao porque o juizo acolheu nosso pedido.
+# O art. 921, III (execucao sem bens) e' pedido do EXEQUENTE - quando o cliente
+# e' o credor, parar a execucao nao e' vitoria na tese.
+_SUSPENSAO_NAO_E_EXITO = ("art. 921", "artigo 921", "prescricao intercorrente",
+                          "suspensao do processo pelo prazo de 1", "por um ano",
+                          "irdr", "recurso repetitivo", "tema 1", "tema repetitivo",
+                          "convencao das partes", "art. 313", "artigo 313",
+                          "aguardar o julgamento do tema")
+
+# ------------------------------------------------------------
+# Indeferimento "por ora", aguardando a contestacao: NAO e' inexito ainda
+# ------------------------------------------------------------
+# Regra da Dra. Juliana (17/09/2026): tutela de 1o grau indeferida "por ora",
+# para ser reapreciada depois da contestacao/contraditorio, nao se computa desde
+# ja como inexito. Vai para MONITORAMENTO: apos a contestacao o escritorio renova
+# o pedido, e a decisao sobre o pedido renovado e' que entra no KPI.
+# Dois requisitos, cumulativos, para nao pegar "por ora" solto:
+#   1. o "por ora" qualifica o proprio indeferimento ("indefiro, por ora, a
+#      tutela") - em "indefiro a tutela, mantendo-se, por ora, a exigibilidade"
+#      (0000047-00) o por ora e' da consequencia e o inexito e' definitivo;
+#   2. perto do comando, o juizo liga a reapreciacao ao contraditorio. Quando a
+#      condicao e' outra (ex.: garantia da execucao, 0000066-00) a regra nao se
+#      aplica sozinha e o ato segue o fluxo normal.
+_INDEFERIMENTO_POR_ORA = re.compile(
+    r"\bindefiro,? (?:por ora|neste momento|nesta fase),? "
+    r"(?:o pedido de |a |os pedidos de |o pleito de )?(?:atribuicao de )?(?:tutela|liminar|antecipacao|efeito suspensivo)")
+_AGUARDA_CONTRADITORIO = re.compile(
+    r"(?:apos|depois d[ao]|com) (?:a |o )?(?:vinda da )?(?:contestacao|contraditorio|resposta d[ao] "
+    r"(?:re|reu|requerid[ao]|parte contraria))|formacao do contraditorio|"
+    r"oitiva da parte contraria|estabelecimento do contraditorio")
+
+MOTIVO_POR_ORA = ("tutela indeferida por ora, aguardando a contestacao - monitorar e "
+                  "renovar o pedido (regra da GJ, 17/09/2026)")  # texto mantido: e' chave do rotulo
+
+
+def indeferimento_provisorio(texto_normalizado):
+    """Trecho do indeferimento 'por ora', ou None.
+
+    Ampliada em 21/09/2026 (Dra. Juliana, caso Cliente P 0000066-00): o "por ora"
+    colado ao proprio indeferimento basta, SEJA QUAL FOR a condicao da
+    reapreciacao - contestacao, contraditorio, garantia da execucao, elementos
+    novos. A exigencia de o juizo citar o contraditorio (17/09) caiu. Continua
+    de fora o "por ora" que qualifica outra coisa ("indefiro a tutela,
+    mantendo-se, por ora, a exigibilidade" - 0000047-00), porque o padrao exige
+    o "por ora" entre o verbo e o objeto.
+    """
+    t = texto_normalizado or ""
+    for m in _INDEFERIMENTO_POR_ORA.finditer(t):
+        fim = t.find(".", m.end())
+        return t[m.start():(fim if 0 < fim - m.start() < 400 else m.end() + 250)]
+    return None
+
 
 # Em acordao do TJRO/TJPR o resultado vem no campo "decisao:" do cabecalho
 # ("decisao:\"...recurso nao provido...\"") ou no fecho da ementa.
@@ -144,6 +228,9 @@ def extrair_dispositivo(texto_normalizado):
         p = t.rfind(marcador)
         if p > pos:
             pos = p
+    for m in _TITULO_DISPOSITIVO.finditer(t):
+        if m.start() > pos:
+            pos = m.start()
     if pos >= 0:
         return t[pos:], "marcador"
 
@@ -155,7 +242,7 @@ def extrair_dispositivo(texto_normalizado):
 
     # TJPR publica o acordao como ementa pura, sem campo "decisao:" e sem
     # "ante o exposto" - e a ementa FECHA com o resultado ("... RECURSO NAO
-    # PROVIDO."). Ai a ementa e' o dispositivo (0000000-00.0000.0.00.0000).
+    # PROVIDO."). Ai a ementa e' o dispositivo (0000059-59.2026.8.16.0000).
     p = t.find("ementa:")
     if p < 0:
         p = t.find("ementa ")
@@ -355,7 +442,7 @@ def detectar_recorrente(texto_normalizado, polo):
 # "camara civel" aparece no ENDERECO do tribunal no cabecalho ("rua
 # desembargador homero mafra..., 2a camara civel" - TJES) e "relator" aparece em
 # toda monocratica. Os dois faziam decisao monocratica de tutela recursal ser
-# lida como acordao de merito (0000000-00.0000.0.00.0000).
+# lida como acordao de merito (0000027-76.2026.8.08.0000).
 _MARCAS_COLEGIADO = ("por unanimidade", "por maioria", "acordam os",
                      "acordam em", "data do julgamento", "orgao julgador",
                      "voto do relator")
@@ -378,7 +465,7 @@ _MARCAS_ACORDO = ("homologo o acordo", "homologo a transacao",
                   "homologo, por sentenca, o acordo", "autocomposicao homologada")
 # "relator" sozinho NAO serve: o cabecalho de sentenca de 1o grau do TJMT traz
 # "sentenca 1. relatorio" e a palavra casava, fazendo o modulo tratar sentenca
-# como recurso e inverter o sinal (0000000-00.0000.0.00.0000).
+# como recurso e inverter o sinal (0000060-10.2025.8.11.0100).
 _MARCAS_2O_GRAU = ("agravo de instrumento", "agravo interno", "apelacao civel",
                    "desembargador", "desembargadora", "relator(a)")
 
@@ -462,11 +549,28 @@ _OBJETO_PRINCIPAL = (
 )
 
 
+# Objeto do RECURSO, lido na regiao do objeto (cabecalho, "trata-se", ementa).
+# Servem ao corte do acordao em classificar_kpi: a forma colegiada nao faz o
+# ato ser merito (regras da GJ de 15, 22 e 23/09/2026).
+_RECURSO_DESPROVIDO = re.compile(
+    r"\b(?:recurso|agravo(?: interno)?)[^.]{0,40}(?:des|nao )provido"
+    r"|\bnego provimento|\bnegaram provimento|\bnegado provimento|\bnegou-se provimento"
+    r"|\brecurso desprovido|\bagravo desprovido")
+_OBJETO_TUTELA = re.compile(
+    r"(?:in)?deferiu[^.]{0,60}(?:tutela|liminar|efeito suspensivo)"
+    r"|pedido de tutela|tutela de urgencia|tutela provisoria|tutela antecipada"
+    r"|efeito suspensivo aos embargos|suspensao da exigibilidade")
+_OBJETO_INCIDENTE_EXECUCAO = re.compile(
+    r"impugnacao a penhora|impugnacao ao bloqueio|sisbajud|impenhorabilidade"
+    r"|impugnacao ao cumprimento de sentenca|excecao de pre-?executividade"
+    r"|desbloqueio|bloqueio de (?:valores|ativos)")
+
+
 def _regiao_do_objeto(texto_normalizado):
     """So o trecho que IDENTIFICA o objeto: cabecalho, 'trata-se de' e ementa.
 
     Varrer o texto inteiro nao serve: uma sentenca de 18 mil caracteres cita
-    gratuidade no meio da fundamentacao e as duas sentencas de uma cliente
+    gratuidade no meio da fundamentacao e as duas sentencas da Sra. Cliente U
     foram excluidas por isso na primeira tentativa desta regra.
     """
     t = texto_normalizado or ""
@@ -499,11 +603,11 @@ def objeto_acessorio(texto_normalizado, dispositivo=None):
             m = re.search(padrao, regiao)
             if m:
                 # Objeto MISTO: o pedido acessorio aparece listado ao lado de um
-                # pedido principal. Nos embargos de um cliente (0000000-00, 11/09/2026)
+                # pedido principal. Nos embargos do Cliente I (0000030-00, 11/09/2026)
                 # a decisao resume "requer o parcelamento das custas processuais e
                 # a atribuicao de efeito suspensivo aos embargos" - e o dispositivo
                 # indefere o efeito suspensivo. A regra existe para o ato cujo UNICO
-                # objeto e' acessorio (0000000-01, 0000000-02); objeto que tambem
+                # objeto e' acessorio (0000026-04, 0000064-47); objeto que tambem
                 # pede tutela ou suspensao da execucao continua no KPI.
                 if any(p in regiao for p in _OBJETO_PRINCIPAL):
                     continue
@@ -550,6 +654,10 @@ def classificar_kpi(texto_normalizado, dispositivo, classe=""):
                                                "indefiro o pedido de tutela",
                                                "defiro parcialmente o pedido de tutela",
                                                "recurso nao provido", "recurso provido"))
+            # "indefiro, por ora, o pedido de tutela" nao casava com a lista acima
+            # e a decisao de tutela da Sra. Cliente N (0000058-58) virava despacho por
+            # terminar com "cumpra-se".
+            tem_decisao = tem_decisao or bool(_TUTELA_OPERATIVA_1G.search(d))
             if not tem_decisao:
                 return {"kpi": None, "rotulo": None, "fora_escopo": True,
                         "motivo": motivo, "confianca": "media"}
@@ -569,9 +677,36 @@ def classificar_kpi(texto_normalizado, dispositivo, classe=""):
     #
     # A mencao a "efeito suspensivo" NAO tira o acordao do KPI 1: o acordao que
     # julga o AI costuma abrir dizendo que o pedido de efeito suspensivo ficou
-    # prejudicado (0000000-00.0000.0.00.0000, apelacao lida como KPI 3 por
+    # prejudicado (0000061-32.2025.8.22.0021, apelacao lida como KPI 3 por
     # causa dessa frase). Quem decide e' o orgao: colegiado -> merito.
+    #
+    # Mas a FORMA (acordao) nao basta: o que decide e' o OBJETO do recurso
+    # (regras da GJ de 15, 22 e 23/09/2026). Antes desta checagem, dois acordaos
+    # de set/2026 entravam como merito inexito so por serem colegiados:
+    # 0000036-00 (agravo interno que manteve a monocratica) e 0000037-00
+    # (agravo sobre penhora de R$ 481,41 via Sisbajud). Os dois sairam da taxa.
     if segundo_grau and colegiado:
+        objeto = _regiao_do_objeto(t)
+        cabecalho = t[:1500]
+        agravo_interno = "agravo interno" in c or "agravo interno" in cabecalho
+        if agravo_interno and _RECURSO_DESPROVIDO.search(d):
+            return {"kpi": None, "rotulo": None, "fora_escopo": True,
+                    "motivo": "agravo interno que apenas mantem a decisao anterior - "
+                              "nao conta de novo (regra da GJ, 15/09/2026)",
+                    "confianca": "media"}
+        agravo_instrumento = ("agravo de instrumento" in c or "agravo de instrumento" in cabecalho) \
+            and "apelacao" not in c
+        if agravo_instrumento and _OBJETO_TUTELA.search(objeto):
+            return {"kpi": "KPI 3", "rotulo": ROTULO_KPI["KPI 3"], "fora_escopo": False,
+                    "motivo": "acordao em agravo cujo objeto e' tutela -> tutela recursal, "
+                              "nao merito (regra da GJ, 15/09/2026)",
+                    "confianca": "media"}
+        if _OBJETO_INCIDENTE_EXECUCAO.search(objeto):
+            return {"kpi": "KPI 1", "rotulo": ROTULO_KPI["KPI 1"], "fora_escopo": False,
+                    "motivo": "acordao sobre incidente da execucao (penhora/bloqueio/"
+                              "impugnacao) - pontua conforme o teor: A CONFIRMAR PELA GJ "
+                              "(regras de 22 e 23/09/2026)",
+                    "confianca": "baixa", "confirmar": True}
         return {"kpi": "KPI 1", "rotulo": ROTULO_KPI["KPI 1"], "fora_escopo": False,
                 "motivo": "acordao / julgamento colegiado do recurso", "confianca": "alta"}
 
@@ -620,10 +755,10 @@ _PADROES_RESULTADO = [
     (r"\bindefiro (?:a|o pedido de) tutela", "ativo", "inexito"),
     (r"\bindefiro o pedido de antecipacao", "ativo", "inexito"),
     # As monocraticas de relator variam muito a redacao do mesmo comando:
-    # "indefiro o pedido de efeito suspensivo ativo" (0000000-03),
-    # "indefiro o pedido de concessao do efeito suspensivo" (0000000-04),
+    # "indefiro o pedido de efeito suspensivo ativo" (0000067-00),
+    # "indefiro o pedido de concessao do efeito suspensivo" (0000063-31),
     # "indefiro o pedido de efeito antecipatorio (ativo ou suspensivo)"
-    # (0000000-05). As tres sao o mesmo KPI 3.
+    # (0000068-00). As tres sao o mesmo KPI 3.
     (r"\bindefiro o (?:pedido de )?(?:concessao d[eo] )?efeito "
      r"(?:suspensivo|ativo|antecipatorio)", "ativo", "inexito"),
     (r"\bnego (?:o )?(?:pedido de )?efeito suspensivo", "ativo", "inexito"),
@@ -633,8 +768,8 @@ _PADROES_RESULTADO = [
     (r"\bdefiro (?:a|o pedido de) tutela", "ativo", "exito"),
     (r"\bconcedo (?:a|o pedido de) tutela", "ativo", "exito"),
     # Nem toda liminar deferida diz "tutela" no dispositivo. A decisao que
-    # suspendeu a execucao de uma cliente
-    # (0000000-00.0000.0.00.0000) abre com "defiro o pedido formulado pela parte
+    # suspendeu a execucao da Sra. Cliente H
+    # (0000025-78.2025.8.22.0024) abre com "defiro o pedido formulado pela parte
     # autora" e so depois detalha o que suspende - e ficou fora do KPI por isso.
     # O guarda-negativo de `_DEFERIMENTO_PROCESSUAL` e' que impede este padrao de
     # capturar "defiro a dilacao de prazo" e "defiro a gratuidade".
@@ -645,6 +780,12 @@ _PADROES_RESULTADO = [
     (r"\bdefiro o (?:pedido de )?(?:concessao d[eo] )?efeito "
      r"(?:suspensivo|ativo|antecipatorio)", "ativo", "exito"),
     (r"\batribuo efeito suspensivo", "ativo", "exito"),
+    # Suspensao de ato constritivo (ver _SUSPENSAO_CONSTRICAO). Como toda linha
+    # desta tabela, o resultado esta na otica do polo ATIVO - e, para quem move a
+    # execucao, parar a penhora e' derrota. Assim o executado (nosso cliente na
+    # carteira rural) fica com o exito, e a cobranca em que o cliente e' o CREDOR
+    # sai como inexito, que e' o certo.
+    (_SUSPENSAO_CONSTRICAO.pattern, "ativo", "inexito"),
     (r"\brevogo a tutela", "ativo", "inexito"),
     # recurso: 'ativo' aqui = quem recorreu
     (r"recurso (?:conhecido,? (?:mas |e )?)?(?:nao provido|desprovido|improvido)", "ativo", "inexito"),
@@ -671,15 +812,15 @@ _INVERSO = {"exito": "inexito", "inexito": "exito", "parcial": "parcial"}
 # "Parcialmente procedente" NAO e' automaticamente Parcial
 # ------------------------------------------------------------
 #
-# Regra da Dra. Juliana (10/09/2026), sobre as duas sentencas de uma
-# cliente: o que decide entre Exito e Parcial nao e' o rotulo do dispositivo, e'
+# Regra da Dra. Juliana (10/09/2026), sobre as duas sentencas da Sra. Cliente U
+# Gomes: o que decide entre Exito e Parcial nao e' o rotulo do dispositivo, e'
 # se a TESE CENTRAL do escritorio foi acolhida. Sentenca que declara
 # descaracterizada a mora, reconhece o direito ao alongamento ou anula a
 # clausula discutida entregou ao cliente aquilo que ele veio buscar - ainda que
 # o juiz rejeite um pedido acessorio e rotule tudo de "parcialmente procedente".
 #
-# Foi exatamente o caso: 0000000-06 (alongamento PRONAMP reconhecido, Sumula
-# 298) e 0000000-07 (mora descaracterizada, CDI afastado, capitalizacao diaria
+# Foi exatamente o caso: 0000060-10 (alongamento PRONAMP reconhecido, Sumula
+# 298) e 0000069-00 (mora descaracterizada, CDI afastado, capitalizacao diaria
 # afastada, seguro prestamista anulado) sairam como Parcial na primeira versao
 # deste modulo, quando as duas sao Exito.
 _TESES_CENTRAIS = (
@@ -762,7 +903,7 @@ _PADROES_RECURSAIS = ("provido", "provida", "provimento", "suspensivo",
 
 # Deferimento que NAO e' merito nem tutela: e' expediente. Sem esta lista, o
 # padrao generico "defiro o pedido formulado pela parte autora" transformaria
-# "defiro a dilacao de prazo" (0000000-00.0000.0.00.0000, mesma cliente, mesma
+# "defiro a dilacao de prazo" (0000062-71.2026.8.22.0024, mesma cliente, mesma
 # semana) num exito de KPI 2.
 _DEFERIMENTO_PROCESSUAL = ("dilacao de prazo", "dilacao do prazo", "gratuidade",
                            "justica gratuita", "juntada", "desentranhamento",
@@ -788,6 +929,11 @@ def classificar_resultado(dispositivo, kpi, polo, recorrente=None, segundo_grau=
             if "defiro" in m.group(0) and any(x in trecho_pos
                                               for x in _DEFERIMENTO_PROCESSUAL):
                 continue
+            # parar a execucao por causa legal (art. 921) ou por tema repetitivo
+            # nao e' tutela deferida a nosso pedido
+            if _SUSPENSAO_CONSTRICAO.search(m.group(0)) and any(
+                    x in d for x in _SUSPENSAO_NAO_E_EXITO):
+                continue
             achados.append((m.start(), regex, lado, resultado, m.group(0)))
 
     if not achados:
@@ -799,7 +945,7 @@ def classificar_resultado(dispositivo, kpi, polo, recorrente=None, segundo_grau=
     # O teste do carater recursal olha o ENTORNO, nao so o trecho casado: o
     # padrao "defiro parcialmente o pedido de antecipacao" para antes da
     # palavra que o qualifica ("...da tutela recursal"), e a decisao recursal
-    # legitima caia como transcricao (0000000-00.0000.0.00.0000).
+    # legitima caia como transcricao (0000027-76.2026.8.08.0000).
     def _recursal(a):
         pos, _, _, _, trecho = a
         return any(p in d[pos:pos + len(trecho) + 60] for p in _PADROES_RECURSAIS)
@@ -809,7 +955,7 @@ def classificar_resultado(dispositivo, kpi, polo, recorrente=None, segundo_grau=
         # decidir ("combate a decisao que deferiu parcialmente a tutela [...]
         # deste modo, indefiro o efeito suspensivo"). O primeiro enunciado do
         # trecho e', entao, a decisao de 1o grau; o comando do relator e' o
-        # ULTIMO enunciado de carater recursal (0000000-00.0000.0.00.0000).
+        # ULTIMO enunciado de carater recursal (0000063-31.2026.8.22.0000).
         recursais = [a for a in achados if _recursal(a)]
         if not recursais:
             trecho = achados[0][4]
@@ -857,7 +1003,7 @@ def classificar_resultado(dispositivo, kpi, polo, recorrente=None, segundo_grau=
     # Tutela deferida em parte e' tutela DEFERIDA: a medida foi concedida,
     # ainda que com alcance menor que o pedido.
     # Regra confirmada pela Dra. Juliana em 10/09/2026 sobre a tutela recursal
-    # de um cliente (0000000-00.0000.0.00.0000), que saia
+    # do Sr. Cliente M (0000027-76.2026.8.08.0000), que saia
     # como Parcial 0,25 quando vale 0,50.
     if resultado == "parcial" and kpi in ("KPI 2", "KPI 3"):
         resultado = "exito" if somos_o_ativo else "inexito"
@@ -873,6 +1019,15 @@ def classificar_resultado(dispositivo, kpi, polo, recorrente=None, segundo_grau=
         evidencia = f"{trecho} — {motivo_proc}"
         if confirmar:
             confianca = "media"
+
+    # Suspensao de constricao entra como tutela deferida, mas sempre marcada
+    # para a GJ: o mesmo verbo cobre desde o sobrestamento de um mandado de
+    # penhora (exito real) ate a parada do feito por razao processual.
+    if regex == _SUSPENSAO_CONSTRICAO.pattern:
+        confirmar = True
+        confianca = "media"
+        evidencia = (f"{trecho} — suspensao de ato constritivo lida como tutela "
+                     f"deferida (regra da GJ, 24/09/2026); confirmar o alcance")
 
     return {"resultado": resultado, "confianca": confianca, "padrao": regex,
             "evidencia": evidencia, "confirmar": confirmar}
@@ -930,8 +1085,8 @@ def classificar_carteira(lawsuit, texto_normalizado):
 
     # "Diversa" por AUSENCIA de marca nao e' conclusao: o acordao de 2o grau
     # publicado so como ementa nao repete a origem rural do processo, e a mesma
-    # cliente sai rural num ato e diversa no outro (Cliente C:
-    # 0000000-05 rural, 0000000-08 diversa - as duas sao rurais na planilha da
+    # cliente sai rural num ato e diversa no outro (Cliente T:
+    # 0000068-00 rural, 0000059-59 diversa - as duas sao rurais na planilha da
     # GJ). Marcado como baixa para a Controladoria confirmar.
     return "diversa", ("sem marca rural no texto" +
                        (f" e group='{grupo}' nao nomeia tese rural" if g else "") +
@@ -964,20 +1119,55 @@ def avaliar(resumo_djen, lawsuit=None, oabs_escritorio=None):
 
     # "recorrente" so faz sentido em ato de tribunal. Em sentenca de 1o grau a
     # palavra "apelante" aparece por citacao de jurisprudencia, e a leitura do
-    # resultado passava a inverter o sinal de uma procedencia (0000000-06).
+    # resultado passava a inverter o sinal de uma procedencia (0000060-10).
     segundo_grau = e_ato_de_segundo_grau(t, resumo_djen.get("classe"))
     recorrente = detectar_recorrente(t, polo["polo"]) if segundo_grau else None
     kpi = classificar_kpi(t, dispositivo, resumo_djen.get("classe"))
 
+    # Reserva: fecho sem decisao, mas o corpo de um ato de 1o grau decide tutela
+    # na 1a pessoa. Le a partir do ULTIMO desses comandos (o relatorio fala do que
+    # ja foi decidido na 3a pessoa: "indeferiu").
+    if (kpi["fora_escopo"] and not segundo_grau and kpi["motivo"] in (
+            "despacho de mero expediente / impulso",
+            "ato sem dispositivo decisorio identificavel (despacho/expediente)")):
+        ultimo = None
+        for ultimo in _TUTELA_OPERATIVA_1G.finditer(t):
+            pass
+        if not ultimo and not any(x in t for x in _SUSPENSAO_NAO_E_EXITO):
+            for ultimo in _SUSPENSAO_CONSTRICAO.finditer(t):
+                pass
+        if ultimo:
+            dispositivo, origem_disp = t[ultimo.start():], "corpo"
+            kpi = classificar_kpi(t, dispositivo, resumo_djen.get("classe"))
+
     # Objeto acessorio derruba o ato de qualquer KPI, inclusive quando a FORMA
-    # e' de efeito suspensivo (0000000-00.0000.0.00.0000: agravo cujo unico
+    # e' de efeito suspensivo (0000026-04.2026.8.22.0000: agravo cujo unico
     # objeto e' a revogacao da gratuidade) ou de acordao de apelacao
-    # (0000000-00.0000.0.00.0000: apelacao so sobre onus sucumbenciais).
+    # (0000064-47.2025.8.22.0001: apelacao so sobre onus sucumbenciais).
     if not kpi["fora_escopo"]:
         acessorio = objeto_acessorio(t, dispositivo)
         if acessorio:
             kpi = {"kpi": None, "rotulo": None, "fora_escopo": True,
                    "motivo": acessorio, "confianca": "media"}
+
+    # Indeferimento "por ora": desde 29/09/2026 ele CONTA no KPI.
+    #
+    # A regra de 17/09/2026 tirava da taxa a tutela indeferida "por ora"
+    # (aguardando contestacao, garantia ou elementos novos) e a mandava para
+    # monitoramento, porque o pedido seria renovado. Em 29/09/2026 a Dra.
+    # Juliana reverteu: "quero que inclua tudo, inclusive os indeferimentos de
+    # tutela por ora, tudo vai entrar no KPI". O ato passa a ser classificado
+    # normalmente (tutela indeferida = inexito, KPI 2 ou 3 conforme o grau) e a
+    # marca `monitorar_renovacao` permanece, agora como sinalizacao para renovar
+    # o pedido - nao mais como motivo de exclusao.
+    #
+    # Para voltar atras, basta reativar o bloco comentado abaixo.
+    monitorar = None
+    if not kpi["fora_escopo"] and kpi["kpi"] == "KPI 2" and not segundo_grau:
+        monitorar = indeferimento_provisorio(t)
+        # if monitorar:
+        #     kpi = {"kpi": None, "rotulo": None, "fora_escopo": True,
+        #            "motivo": MOTIVO_POR_ORA, "confianca": "media"}
     carteira, origem_carteira, conf_carteira = classificar_carteira(lawsuit, t)
 
     linha = {
@@ -1009,13 +1199,15 @@ def avaliar(resumo_djen, lawsuit=None, oabs_escritorio=None):
         "evidencia": None,
         "confianca": "baixa",
         "confirmar_resultado": False,
+        "monitorar_renovacao": bool(monitorar),
+        "monitorar_trecho": monitorar or "",
         "link_djen": resumo_djen.get("link"),
         "no_advbox": bool(lawsuit),
     }
 
     if kpi["fora_escopo"]:
         linha["confianca"] = kpi["confianca"]
-        linha["evidencia"] = kpi["motivo"]
+        linha["evidencia"] = monitorar or kpi["motivo"]
         return linha
 
     if origem_disp == "texto":
@@ -1023,7 +1215,7 @@ def avaliar(resumo_djen, lawsuit=None, oabs_escritorio=None):
         # inteiro, que contem a ementa da jurisprudencia citada e a decisao
         # recorrida transcrita. Foi assim que um embargos a execucao virou
         # "recurso conhecido e desprovido" a partir de um acordao do TJ-MS
-        # colado na peca (0000000-00.0000.0.00.0000). Sobe a conferir.
+        # colado na peca (0000056-67.2025.8.22.0002). Sobe a conferir.
         res = {"resultado": None, "confianca": "baixa", "padrao": None,
                "evidencia": "ato sem marcador de dispositivo e curto demais para "
                             "recortar o fecho - ler a mao"}
@@ -1032,7 +1224,9 @@ def avaliar(resumo_djen, lawsuit=None, oabs_escritorio=None):
                                     segundo_grau=segundo_grau, texto_normalizado=t)
     linha["resultado"] = res["resultado"]
     linha["evidencia"] = res["evidencia"]
-    linha["confirmar_resultado"] = bool(res.get("confirmar"))
+    # A marca vem do resultado (parcial, sucumbencia reciproca) OU do proprio
+    # KPI (acordao sobre incidente da execucao: a GJ decide se pontua).
+    linha["confirmar_resultado"] = bool(res.get("confirmar")) or bool(kpi.get("confirmar"))
 
     peso = PESOS.get(kpi["kpi"])
     if kpi["kpi"] == "KPI 4":
@@ -1371,6 +1565,12 @@ def aplicar_decisoes_gj(linhas, decisoes):
                           "resultado": None, "peso": None, "favoravel": None,
                           "contribuicao": None, "confianca": "alta",
                           "confirmar_resultado": False, "kpi_motivo": nota, "evidencia": nota})
+                # "Por ora" decidido pela GJ (sem a expressao no texto, ex. Cliente O
+                # 0000070-00, 21/09/2026) tem de aparecer na lista de monitoramento
+                # como os que a regra pega sozinha - senao sai da taxa e some.
+                if d.get("monitorar_renovacao"):
+                    l["monitorar_renovacao"] = True
+                    l["monitorar_trecho"] = l.get("monitorar_trecho") or nota
             if d.get("incluir") and d.get("kpi") and d.get("resultado"):
                 peso = PESOS.get(d["kpi"])
                 fav = FAVORAVEL.get(d["resultado"])
@@ -1386,7 +1586,7 @@ def aplicar_decisoes_gj(linhas, decisoes):
         if not casou and d.get("lancamento_manual") and d.get("incluir") \
                 and d.get("kpi") and d.get("resultado") and d.get("data"):
             # Decisao que NAO passa pelo DJEN (intimacao eletronica so no PJe do
-            # tribunal - caso de um cliente, TJES, 11/09/2026). Sem isto a GJ nao tinha
+            # tribunal - caso Cliente M, TJES, 11/09/2026). Sem isto a GJ nao tinha
             # como lancar o ato: o `incluir` so ajusta publicacao que ja existe.
             nota = f"lancamento manual da GJ ({d.get('decidido_por', 'GJ')}, {d.get('decidido_em', '')}): {d.get('motivo', '')}"
             peso = PESOS.get(d["kpi"])
@@ -1408,6 +1608,10 @@ def aplicar_decisoes_gj(linhas, decisoes):
         elif not casou:
             aplicadas.append((d.get("data"), d.get("processo"),
                               "NAO APLICADA - publicacao nao encontrada no periodo"))
+    # Renumera as semanas DEPOIS de aplicar: lancamento manual da GJ entra como
+    # linha nova (ato fora do DJEN, ex.: Cliente M 0000032-00, 11/09/2026) e
+    # ficava sem semana - somava no total e sumia da quebra semanal.
+    anotar_semanas(linhas)
     return aplicadas
 
 
@@ -1417,7 +1621,8 @@ def exportar_csv(linhas, caminho):
               "advogado_responsavel", "carteira",
               "kpi", "kpi_rotulo", "resultado", "peso", "favoravel", "contribuicao",
               "confianca", "polo", "recurso_de_quem", "fora_escopo", "kpi_motivo",
-              "evidencia", "confirmar_resultado", "carteira_confianca", "origem_carteira",
+              "evidencia", "confirmar_resultado", "monitorar_renovacao", "monitorar_trecho",
+              "carteira_confianca", "origem_carteira",
               "decisao_gj", "tribunal", "orgao", "classe", "no_advbox",
               "link_djen"]
     with open(caminho, "w", newline="", encoding="utf-8-sig") as f:

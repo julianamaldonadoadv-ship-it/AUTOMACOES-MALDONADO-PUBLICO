@@ -21,6 +21,9 @@ Parametros aceitos pela API (os mais uteis):
     dataDisponibilizacaoInicio  -> YYYY-MM-DD
     dataDisponibilizacaoFim     -> YYYY-MM-DD
     meio                        -> D (diario) / E (eletronico)
+    texto                       -> busca no teor. Casa PALAVRAS soltas, nao a frase
+                                   (com ou sem aspas da o mesmo count, conferido em
+                                   17/09/2026) - quem precisa da frase confere no texto
     pagina, itensPorPagina      -> paginacao (max 100 por pagina)
 
 CLI:
@@ -98,6 +101,7 @@ def consultar(
     data_fim=None,
     meio=None,
     limite=None,
+    texto=None,
 ):
     """
     Consulta comunicacoes com paginacao automatica.
@@ -131,6 +135,8 @@ def consultar(
         base_params["siglaTribunal"] = sigla_tribunal.upper()
     if meio:
         base_params["meio"] = meio.upper()
+    if texto:
+        base_params["texto"] = texto
 
     itens = []
     pagina = 1

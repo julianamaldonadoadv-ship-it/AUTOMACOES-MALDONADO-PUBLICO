@@ -95,7 +95,10 @@ done
 
 echo
 echo "-- 5. Ultima rodada"
-for par in "rotina_intimacoes:Intimacoes" "kpi_diario:KPI"; do
+# controladoria_diaria: o log da rodada das 08:00 (intimacoes + despachos +
+# custas). rotina_intimacoes fica como caminho de emergencia, sem log proprio
+# na rodada normal - por isso nao entra aqui.
+for par in "controladoria_diaria:Controladoria" "kpi_diario:KPI"; do
   ARQ="_trabalho/logs/${par%%:*}.log"; NOME="${par##*:}"
   if [ -f "$ARQ" ]; then
     IDADE=$(( ( $(date +%s) - $(stat -c %Y "$ARQ" 2>/dev/null || stat -f %m "$ARQ") ) / 3600 ))

@@ -69,6 +69,17 @@ else
   echo "  [ok] relatorio em _trabalho/relatorios/" >> "$LOG"
 fi
 
+# Custas (POP-CJ-006), duas passadas. SOMENTE LEITURA — nenhuma tarefa nasce
+# aqui, mesmo com VPS_ROTINA_GRAVAR=1. Falha nao derruba a rodada.
+#   fila     -> o que vai a protocolo nos proximos dias (chega ANTES do erro)
+#   auditar  -> o que ja foi protocolado sem custas (rede de seguranca)
+echo "  [custas] fila de protocolo dos proximos 5 dias" >> "$LOG"
+"$PY" "$PROJETO/OPERACIONAL/main.py" custas fila --dias 5 >> "$LOG" 2>&1 \
+  || echo "  [FALHA] fila de custas - conferir acima" >> "$LOG"
+echo "  [custas] iniciais dos ultimos 7 dias sem registro de custas" >> "$LOG"
+"$PY" "$PROJETO/OPERACIONAL/main.py" custas auditar --dias 7 >> "$LOG" 2>&1 \
+  || echo "  [FALHA] auditoria de custas - conferir acima" >> "$LOG"
+
 if [ "$(wc -l < "$LOG")" -gt 4000 ]; then
   tail -2000 "$LOG" > "$LOG.tmp" && mv "$LOG.tmp" "$LOG"
 fi

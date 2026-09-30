@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Agendamento da rodada das 08:00 da Controladoria (intimacoes + despachos) - Maldonado Advogados.
+
+  Roda de segunda a sexta as 08:00 - pedido da Dra. Juliana em 21/09/2026:
+  toda manha, a planilha de conferencia das intimacoes (em simulacao) e a de
+  controle de despachos atualizadas. Na segunda, cobre sexta a domingo.
+
+  ATENCAO ao caminho: o ProgramArguments abaixo aponta para a pasta do projeto
+  no Mac da Dra. Juliana. Em outra maquina, ajustar os dois caminhos antes de
+  carregar (o do script e o WorkingDirectory).
+
+  Instalar:
+      cp deploy/com.maldonado.controladoria.plist ~/Library/LaunchAgents/
+      launchctl load ~/Library/LaunchAgents/com.maldonado.controladoria.plist
+  Conferir se esta carregado:
+      launchctl list | grep maldonado
+  Desinstalar:
+      launchctl unload ~/Library/LaunchAgents/com.maldonado.controladoria.plist
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.maldonado.controladoria</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>/Users/julianaferreiragusmaodelara/Documents/AUTOMAÇÕES/AUTOMACOES-MALDONADO/deploy/controladoria_diaria.sh</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>/Users/julianaferreiragusmaodelara/Documents/AUTOMAÇÕES/AUTOMACOES-MALDONADO</string>
+
+    <!-- Segunda a sexta, 08:00. Weekday 1=segunda ... 5=sexta. -->
+    <key>StartCalendarInterval</key>
+    <array>
+        <dict><key>Weekday</key><integer>1</integer><key>Hour</key><integer>8</integer><key>Minute</key><integer>0</integer></dict>
+        <dict><key>Weekday</key><integer>2</integer><key>Hour</key><integer>8</integer><key>Minute</key><integer>0</integer></dict>
+        <dict><key>Weekday</key><integer>3</integer><key>Hour</key><integer>8</integer><key>Minute</key><integer>0</integer></dict>
+        <dict><key>Weekday</key><integer>4</integer><key>Hour</key><integer>8</integer><key>Minute</key><integer>0</integer></dict>
+        <dict><key>Weekday</key><integer>5</integer><key>Hour</key><integer>8</integer><key>Minute</key><integer>0</integer></dict>
+    </array>
+
+    <!-- ATENCAO: com StartCalendarInterval o launchd NAO repoe rodada perdida.
+         Se o Mac estiver desligado ou dormindo as 08:00, aquele dia nao roda -
+         e' so rodar `bash deploy/controladoria_diaria.sh` na mao (dia perdido de
+         intimacoes: main.py rotina com hoje= a data, ver o script).
+         RunAtLoad fica FALSE para instalar o agendamento sem disparar uma
+         rodada no ato. -->
+    <key>RunAtLoad</key>
+    <false/>
+
+    <key>StandardOutPath</key>
+    <string>/Users/julianaferreiragusmaodelara/Documents/AUTOMAÇÕES/AUTOMACOES-MALDONADO/_trabalho/logs/controladoria_launchd.out</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/julianaferreiragusmaodelara/Documents/AUTOMAÇÕES/AUTOMACOES-MALDONADO/_trabalho/logs/controladoria_launchd.err</string>
+</dict>
+</plist>
